@@ -1,0 +1,14 @@
+# --- Ядро (обязательно) ---
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+pillow>=10.0.0
+pynput>=1.7.6
+numpy>=1.24.0
+SpeechRecognition>=3.10.0
+
+# --- Кросс-платформенный скриншот ---
+mss>=9.0.0
+
+# Опциональные зависимости вынесены в requirements-optional.txt:
+# голосовой микрофон (PyAudio), исследовательские графики/ML, офлайн Vosk,
+# Windows volume backend.
