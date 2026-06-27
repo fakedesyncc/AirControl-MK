@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="AirControl">
+  <rect width="256" height="256" rx="48" fill="#101418"/>
+  <circle cx="128" cy="128" r="92" fill="#182028" stroke="#42d392" stroke-width="10"/>
+  <path d="M82 150c18 24 48 34 78 22 22-9 38-29 42-54" fill="none" stroke="#f3f6f8" stroke-width="13" stroke-linecap="round"/>
+  <path d="M76 108c18-28 50-43 82-34 18 5 33 16 43 31" fill="none" stroke="#42d392" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="92" cy="126" r="12" fill="#ffd166"/>
+  <circle cx="163" cy="105" r="12" fill="#ffd166"/>
+  <path d="M113 87l17-34 17 34" fill="none" stroke="#f3f6f8" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

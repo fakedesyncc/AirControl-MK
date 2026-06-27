@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AirControl
+Comment=Бесконтактное ассистивное управление компьютером
+Exec=AirControl
+Icon=aircontrol
+Terminal=false
+Categories=Accessibility;Utility;
+Keywords=accessibility;assistive;camera;gesture;hands;
+StartupWMClass=AirControl
