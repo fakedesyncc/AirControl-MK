@@ -1,154 +1,138 @@
-# Сборка AirControl в исполняемый файл
+# Сборка AirControl
 
-Приложение упаковывается в standalone-бандл (со всеми зависимостями, включая
-Python runtime, MediaPipe и модель) через **PyInstaller**. Пользователю не нужен
-Python, Node.js, компилятор или другой язык программирования — он запускает
-готовый установщик/приложение.
+AirControl распространяется как standalone-приложение. Пользователю не нужен
+Python, компилятор или консоль: PyInstaller кладёт runtime, зависимости и модель
+руки внутрь сборки.
 
-> ⚠️ PyInstaller **не умеет кросс-компиляцию**: бинарник под Windows собирается
-> на Windows, под Linux — на Linux, под macOS — на macOS. Поэтому для всех трёх
-> ОС используйте **GitHub Actions** (раздел ниже) — это самый простой способ
-> получить файлы для тестеров на всех платформах сразу.
+## Что Получается
 
----
+| Платформа | Артефакт | Назначение |
+| --- | --- | --- |
+| Windows | `AirControl-Setup.exe` | обычный установщик |
+| Windows | `AirControl-Windows.zip` | portable-проверка |
+| macOS | `AirControl-macOS.zip` | `.app`-сборка |
+| Debian/Ubuntu | `AirControl-Linux-amd64.deb` | установка через пакетный менеджер |
+| Linux | `AirControl-Linux-x86_64.AppImage` | portable-запуск |
+| Linux | `AirControl-Linux.tar.gz` | ручная диагностика |
 
-## Вариант 1 — автосборка под 3 ОС через GitHub Actions (рекомендуется)
+## GitHub Actions
 
-1. Залейте проект в репозиторий GitHub.
-2. Вкладка **Actions** → workflow **«Build AirControl»** → **Run workflow**
-   (или запушьте тег: `git tag v1.0 && git push --tags`).
-3. По завершении скачайте артефакты:
-   - `AirControl-macOS.zip`
-   - `AirControl-Windows.zip`
-   - `AirControl-Setup.exe`
-   - `AirControl-Linux-amd64.deb`
-   - `AirControl-Linux-x86_64.AppImage`
-   - `AirControl-Linux.tar.gz`
-4. Для обычных пользователей раздавайте `AirControl-Setup.exe` на Windows,
-   `AirControl-macOS.zip` на macOS, `AirControl-Linux-amd64.deb` на Debian/Ubuntu
-   и `AirControl-Linux-x86_64.AppImage` как portable-вариант для Linux.
-   `AirControl-Linux.tar.gz` оставьте для диагностики и ручного теста.
+Workflow: `.github/workflows/build.yml`.
 
-Файл workflow: `.github/workflows/build.yml`.
+Сборка запускается:
 
----
+- при push в `main`;
+- при pull request в `main`;
+- при push тега `v*`, например `v1.0.0`;
+- вручную через `Actions -> Build AirControl -> Run workflow`.
 
-## Вариант 2 — локальная сборка (только под текущую ОС)
+Важно: GitHub показывает и запускает workflow как обычный проектный workflow
+только после того, как файл `.github/workflows/build.yml` находится в default
+branch репозитория. Если workflow лежит только во временной ветке, вкладка
+Actions может ничего не собрать.
+
+## Локальная Проверка Исходников
+
+```bash
+python -m compileall aircontrol tests tools packaging/pyinstaller_hooks run_app.py
+python -m unittest discover -s tests
+python -m aircontrol doctor --no-camera
+python -m aircontrol selftest
+```
+
+## Локальная Сборка
+
+PyInstaller не кросс-компилирует. Windows-сборку нужно делать на Windows,
+Linux-сборку на Linux, macOS-сборку на macOS. Для всех трёх ОС используйте
+GitHub Actions.
 
 ```bash
 pip install -r requirements-build.txt
-python -m compileall aircontrol tests tools packaging/pyinstaller_hooks run_app.py
-python -m unittest discover -s tests
 pyinstaller aircontrol.spec --noconfirm
 python tools/smoke_build.py
 ```
 
-`requirements-build.txt` ставит только стабильное ядро для пользовательского
-бандла. Голосовой микрофон, `report` и расширенные ML-бэкенды находятся в
-`requirements-optional.txt`; их лучше ставить только для разработки/исследований.
+Результат:
 
-Результат в `dist/`:
-- **macOS**: `dist/AirControl.app` (и папка `dist/AirControl/`)
-- **Windows**: `dist/AirControl/AirControl.exe`
-- **Linux**: `dist/AirControl/AirControl`
+```text
+dist/
+  AirControl/
+  AirControl.app/        # только macOS
+```
 
-Упаковать для передачи:
+## Упаковка Вручную
+
+macOS:
+
 ```bash
 cp packaging/USER_GUIDE_RU.txt dist/AirControl/USER_GUIDE_RU.txt
-cd dist && zip -r ../AirControl-macOS.zip .        # macOS
-# Windows: Compress-Archive -Path dist/* -DestinationPath AirControl.zip
-# Linux лучше упаковывать tar.gz, чтобы сохранить права запуска.
+cd dist
+zip -r ../AirControl-macOS.zip .
 ```
 
-Для локальной проверки скачиваемого архива после упаковки, из корня проекта:
+Windows:
+
+```powershell
+Copy-Item packaging\USER_GUIDE_RU.txt dist\AirControl\USER_GUIDE_RU.txt
+Compress-Archive -Path dist\* -DestinationPath AirControl-Windows.zip
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\AirControl.iss
+```
+
+Linux:
+
 ```bash
-python tools/verify_release_artifacts.py --os macOS   # Windows/Linux: соответствующая ОС
+cp packaging/USER_GUIDE_RU.txt dist/AirControl/USER_GUIDE_RU.txt
+cp packaging/linux/AirControl.desktop dist/AirControl/AirControl.desktop
+tar -czf AirControl-Linux.tar.gz -C dist AirControl
+bash packaging/linux/build_appimage.sh
+bash packaging/linux/build_deb.sh
 ```
-Этот verifier проверяет не только наличие `AirControl` и руководства, но и
-release-инварианты вроде состава bundled FLAC-конвертеров SpeechRecognition.
 
----
+## Проверка Артефактов
 
-## Инструкция для тестеров
+После упаковки:
 
-**macOS**
-1. Распаковать архив, перенести `AirControl.app` в Программы.
-2. Первый запуск: ПКМ → «Открыть» (обход Gatekeeper для неподписанного приложения).
-3. Разрешить доступ к **камере**, **микрофону** и **универсальному доступу**
-   (Системные настройки → Конфиденциальность и безопасность). Перезапустить.
-4. Запустить `AirControl.app` двойным кликом и выбрать безопасную тренировку
-   или калибровку. Калибровка работает в Tk-окне с кнопками и не требует
-   Space/Esc.
+```bash
+python tools/verify_release_artifacts.py --os macOS
+python tools/verify_release_artifacts.py --os Windows
+python tools/verify_release_artifacts.py --os Linux --skip-appimage-run
+```
 
-**Windows**
-1. Для обычного пользователя: запустить `AirControl-Setup.exe`, затем ярлык
-   AirControl на рабочем столе или в меню Пуск. Установщик ставит приложение
-   в профиль пользователя и не требует прав администратора.
-2. Для portable-теста: распаковать `AirControl-Windows.zip` и запустить
-   `AirControl.exe`.
-3. SmartScreen → «Подробнее» → «Выполнить в любом случае» (приложение не подписано).
+Verifier проверяет наличие исполняемого файла, `USER_GUIDE_RU.txt`,
+Linux desktop-файла, Windows installer и состав bundled FLAC-конвертеров
+SpeechRecognition.
 
-**Linux**
-1. На Debian/Ubuntu скачать `AirControl-Linux-amd64.deb` и открыть его двойным
-   кликом через графический установщик. После установки AirControl появится в
-   меню приложений.
-2. Portable-вариант без установки: скачать `AirControl-Linux-x86_64.AppImage`.
-3. Если AppImage не запускается двойным кликом, один раз включить право запуска:
-   `chmod +x AirControl-Linux-x86_64.AppImage`.
-4. Запустить AppImage двойным кликом. Portable-архив: распаковать
-   `AirControl-Linux.tar.gz` и запустить файл `AirControl`.
-5. Если нет доступа к камере: `sudo usermod -a -G video $USER` и перелогиниться.
-6. Может понадобиться: `sudo apt install libgl1 libglib2.0-0 xdotool`.
-   Для Wayland-теста управления дополнительно можно настроить `ydotool` и
-   `ydotoold` с доступом к `/dev/uinput`.
-7. Для диагностики запустить из терминала:
-   `./AirControl doctor` или `python -m aircontrol doctor`.
-   Для безопасной проверки реального движения курсора без кликов:
-   `./AirControl doctor --input-probe`.
-8. Для безопасной ассистивной настройки сначала запустить:
-   `./AirControl assistive --dry-input`, затем `./AirControl assistive`.
+## Инструкция Для Тестеров
 
-В обычном GUI-сценарии пользователь может нажать «Калибровка под пользователя»:
-окно показывает видеопревью, крупные кнопки и шаги активной зоны/щипка без
-обязательного использования клавиатуры.
-Кнопка «Проверить систему» показывает `doctor`-диагностику без терминала, а
-«Просмотр камеры» всегда запускается в безопасном `view`-режиме с отключённым
-низкоуровневым вводом.
+### Windows
 
-Заметки по Linux:
-- В Wayland-сессии глобальное управление курсором/клавиатурой через X11-бэкенды
-  часто ограничено. AirControl пробует `ydotool`, если `ydotoold` уже запущен
-  и имеет доступ к `/dev/uinput`; иначе для проверки режима управления
-  используйте Xorg-сессию.
-- Если в окне камеры или `doctor-summary.txt` указано `INPUT RISK`, камера и
-  распознавание могут работать, но текущая сессия ещё не гарантирует клики и
-  клавиши. Это не ошибка жеста: проверьте Xorg/Wayland и `ydotoold`.
-- Если `pynput` недоступен, в Xorg-сессии приложение пробует fallback через
-  `xdotool`.
-- Для громкости используются `wpctl`, `pactl` или `amixer`.
-- Для скриншотов используются доступные системные утилиты: `grim`,
-  `gnome-screenshot`, `spectacle`, `scrot`, `import`, затем фолбэк `mss`.
-- Для сворачивания чужих окон нужны `wmctrl` и `xdotool`.
+1. Запустить `AirControl-Setup.exe`.
+2. Открыть AirControl через ярлык на рабочем столе или в меню Пуск.
+3. Если SmartScreen ругается на неподписанное приложение: `Подробнее` ->
+   `Выполнить в любом случае`.
 
-Пользовательские данные (конфиг, датасеты, логи, скриншоты) сохраняются в
-`~/.aircontrol/`.
+### macOS
 
----
+1. Распаковать `AirControl-macOS.zip`.
+2. Перенести `AirControl.app` в Applications.
+3. Первый запуск: правый клик по приложению -> `Open`.
+4. Разрешить Camera, Microphone и Accessibility в System Settings.
 
-## Заметки
+### Linux
 
-- Приложение собрано без подписи. Для распространения вне тестов нужна подпись
-  и нотаризация (Apple Developer ID) / подпись Authenticode (Windows).
-- Размер бандла большой (~270–350 МБ) из-за MediaPipe, OpenCV и голосовых
-  библиотек. Research-команды (`report`, `train --backend rf/mlp`) лучше
-  запускать из исходников с полным Python-окружением; пользовательский бандл
-  оптимизирован под GUI, жесты, камеру, диагностику и ассистивное управление.
-- Другие языки программирования не должны быть требованием для пользователя.
-  Текущая схема оставляет Python внутри собранного приложения, а внешние
-  технологии использует только для упаковки: Inno Setup на Windows, Debian
-  package tools на Linux и PyInstaller `.app` на macOS. Если позже понадобится
-  автообновление, системный tray или сервисный демон ввода, это лучше добавлять
-  как тонкую оболочку на Rust/Tauri или платформенных API, не переписывая
-  распознавание жестов.
-- Сборка идёт в режиме `console=False` (без окна терминала). Чтобы видеть логи
-  при отладке — временно поставьте `console=True` в `aircontrol.spec`.
+1. Для Debian/Ubuntu открыть `AirControl-Linux-amd64.deb` графическим
+   установщиком.
+2. Portable-вариант: скачать `AirControl-Linux-x86_64.AppImage`, включить право
+   запуска и открыть двойным кликом.
+3. Если камера недоступна: добавить пользователя в группу `video` и
+   перелогиниться.
+4. Если жесты видны, но курсор не двигается: проверить Xorg/Wayland и
+   `ydotoold`, затем сохранить ZIP-отчёт диагностики.
+
+## Заметки Для Релиза
+
+- Сборки сейчас не подписаны.
+- Размер бандла большой из-за MediaPipe, OpenCV и runtime.
+- Research-команды лучше запускать из исходников с `requirements-optional.txt`.
+- Пользовательские данные пишутся в пользовательский каталог AirControl и не
+  должны попадать в git.

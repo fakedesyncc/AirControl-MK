@@ -1,12 +1,21 @@
 name: Build AirControl
 
 # Собирает standalone-приложение под macOS, Windows и Linux и выкладывает
-# готовые архивы в Artifacts. Запуск: вкладка Actions → Run workflow,
-# либо автоматически при пуше тега vX.Y.Z.
+# готовые архивы в Artifacts.
 on:
   workflow_dispatch:
   push:
+    branches: ["main"]
     tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aircontrol-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
