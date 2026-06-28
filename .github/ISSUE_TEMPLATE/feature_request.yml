@@ -1,0 +1,37 @@
+name: Feature request
+description: Предложить новую возможность
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: user
+    attributes:
+      label: Для кого это
+      placeholder: Пользователь не может делать щипок, но может удерживать руку.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решает
+      placeholder: Нужно нажимать правую кнопку мыши без точного жеста.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предложение
+      placeholder: Радиальное меню по удержанию открытой ладони.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Риски случайного ввода
+      description: Может ли это вызвать случайные клики, клавиши или прокрутку?
+      placeholder: Нужно подтверждение через dwell, чтобы команда не срабатывала сразу.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Как проверить
+      placeholder: Пользователь должен выполнить действие 10 раз без случайного клика.

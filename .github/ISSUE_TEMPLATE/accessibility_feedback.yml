@@ -1,0 +1,53 @@
+name: Accessibility feedback
+description: Обратная связь по удобству для маломобильных пользователей
+title: "[Accessibility]: "
+labels: ["accessibility", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Этот шаблон нужен для улучшения ассистивного режима. Не указывайте
+        медицинские данные, которые не нужны для описания проблемы.
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Сценарий использования
+      description: Что человек хотел сделать с помощью AirControl?
+      placeholder: Открыть браузер, нажимать кнопки, печатать короткий текст.
+    validations:
+      required: true
+  - type: textarea
+    id: ability
+    attributes:
+      label: Какие движения доступны
+      description: Без медицинских подробностей. Только то, что важно для управления.
+      placeholder: Может медленно двигать кистью, сложно делать щипок, есть тремор.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Какой режим пробовали
+      options:
+        - Безопасная тренировка
+        - Ассистивное управление
+        - Калибровка
+        - Просмотр камеры
+        - Не знаю
+  - type: textarea
+    id: worked
+    attributes:
+      label: Что получилось
+      placeholder: Курсор двигается, dwell-click срабатывает, калибровка понятна.
+  - type: textarea
+    id: hard
+    attributes:
+      label: Что было сложно
+      placeholder: Слишком быстро, трудно удерживать курсор, случайные клики.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Что улучшить
+      placeholder: Больше кнопки, медленнее dwell-click, отдельная экранная панель.

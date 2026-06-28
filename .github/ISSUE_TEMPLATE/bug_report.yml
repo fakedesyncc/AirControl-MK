@@ -1,0 +1,60 @@
+name: Bug report
+description: Сообщить о сбое AirControl
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Если приложение запускается, сначала нажмите
+        `Сохранить отчёт диагностики` и приложите ZIP к issue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Что произошло
+      description: Опишите проблему простыми словами.
+      placeholder: Камера открывается, рука видна, но курсор не двигается.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Операционная система
+      options:
+        - Windows
+        - macOS
+        - Linux Xorg
+        - Linux Wayland
+        - Не знаю
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия или артефакт
+      placeholder: v1.0.0-rc4 / AirControl-Windows.zip / AppImage
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      placeholder: |
+        1. Открыл AirControl
+        2. Нажал Безопасная тренировка
+        3. Показал жест...
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Что показывает статус в окне
+      placeholder: VIEW / CONTROL / INPUT RISK / INPUT ERROR / Low FPS
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Диагностика
+      description: Приложите ZIP-отчёт или вставьте doctor-summary.txt без личных данных.
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Железо
+      placeholder: CPU, GPU, камера, примерный FPS.
