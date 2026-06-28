@@ -50,7 +50,9 @@ DEFAULT_CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 DEFAULT_MODEL_PATH = _bundled_model_path()
 DEFAULT_ML_MODEL_PATH = os.path.join(DATA_DIR, "gesture_model.npz")
 DEFAULT_ML_DATASET_PATH = os.path.join(DATA_DIR, "gesture_dataset.npz")
+DEFAULT_TEMPORAL_SWIPE_MODEL_PATH = os.path.join(DATA_DIR, "swipe_temporal_model.npz")
 DEFAULT_LOG_DIR = os.path.join(DATA_DIR, "logs")
+DEFAULT_VOSK_MODEL_PATH = os.path.join(DATA_DIR, "vosk-model")
 
 
 @dataclass
@@ -149,6 +151,10 @@ class GestureConfig:
     dwell_only_mode: bool = False
     # Динамические жесты (свайпы открытой ладонью).
     dynamic_enabled: bool = True
+    swipe_backend: str = "heuristic"  # "heuristic" | "template" | "lstm" | "tcn"
+    swipe_model_path: str = DEFAULT_TEMPORAL_SWIPE_MODEL_PATH
+    swipe_min_confidence: float = 0.65
+    swipe_sequence_length: int = 16
     swipe_min_dist: float = 0.18      # мин. смещение (норм. координаты)
     swipe_max_time: float = 0.5       # макс. длительность взмаха, с
     swipe_cooldown: float = 0.8
@@ -177,6 +183,7 @@ class VoiceConfig:
     enabled: bool = True
     language: str = "ru-RU"
     engine: str = "google"            # "google" | "vosk" (офлайн, если установлен)
+    vosk_model_path: str = DEFAULT_VOSK_MODEL_PATH
     listen_timeout: float = 8.0
     phrase_time_limit: float = 15.0
     ambient_duration: float = 0.3
@@ -207,6 +214,13 @@ class FusionConfig:
     # Окно (сек), в течение которого голос может уточнить жест и наоборот.
     fusion_window: float = 1.5
     voice_priority: float = 0.6       # вес голоса при конфликте [0..1]
+    # Поддержка модальности взгляда. По умолчанию выключена: без eye-tracker
+    # поведение полностью совпадает с hand-only режимом.
+    gaze_enabled: bool = False
+    gaze_mode: str = "assist"         # "assist" | "cursor"
+    gaze_min_confidence: float = 0.65
+    gaze_weight: float = 0.70         # вес взгляда при assist-смешивании
+    gaze_max_age: float = 0.25        # сек: старый взгляд игнорируется
 
 
 @dataclass
@@ -266,6 +280,7 @@ class AppConfig:
     """Корневой объект конфигурации."""
 
     profile_name: str = "default"
+    assistive_preset: str = "balanced"
     start_mode: str = "view"          # "view" | "control"
     camera: CameraConfig = field(default_factory=CameraConfig)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
@@ -325,6 +340,9 @@ def _repair_runtime_paths(cfg: AppConfig) -> AppConfig:
     cfg.tracking.model_path = _repair_file_path(cfg.tracking.model_path, DEFAULT_MODEL_PATH)
     cfg.gestures.ml_model_path = _repair_file_path(cfg.gestures.ml_model_path, DEFAULT_ML_MODEL_PATH)
     cfg.gestures.ml_dataset_path = _repair_file_path(cfg.gestures.ml_dataset_path, DEFAULT_ML_DATASET_PATH)
+    cfg.gestures.swipe_model_path = _repair_file_path(
+        cfg.gestures.swipe_model_path, DEFAULT_TEMPORAL_SWIPE_MODEL_PATH
+    )
     cfg.evaluation.log_dir = _repair_dir_path(cfg.evaluation.log_dir, DEFAULT_LOG_DIR)
     cfg.telemetry.log_dir = _repair_dir_path(cfg.telemetry.log_dir, DEFAULT_LOG_DIR)
     return cfg
@@ -377,6 +395,49 @@ DWELL_PROFILES = {
 }
 DWELL_PROFILE_ORDER = ("fast", "normal", "steady")
 
+ASSISTIVE_PRESETS = {
+    "balanced": {
+        "label": "balanced",
+        "dwell_profile": "normal",
+        "active_region": 0.45,
+        "sensitivity": 1.05,
+        "worker_easing": 0.30,
+        "pose_window": 5,
+        "scroll_speed": 2.2,
+        "detect_downscale": 0.5,
+        "detect_max_fps": 24,
+        "filter_min_cutoff": 0.8,
+        "filter_beta": 0.8,
+    },
+    "steady": {
+        "label": "steady",
+        "dwell_profile": "steady",
+        "active_region": 0.52,
+        "sensitivity": 0.90,
+        "worker_easing": 0.22,
+        "pose_window": 7,
+        "scroll_speed": 1.6,
+        "detect_downscale": 0.5,
+        "detect_max_fps": 20,
+        "filter_min_cutoff": 0.65,
+        "filter_beta": 0.55,
+    },
+    "low_motion": {
+        "label": "low motion",
+        "dwell_profile": "normal",
+        "active_region": 0.34,
+        "sensitivity": 1.20,
+        "worker_easing": 0.28,
+        "pose_window": 5,
+        "scroll_speed": 1.9,
+        "detect_downscale": 0.5,
+        "detect_max_fps": 24,
+        "filter_min_cutoff": 0.75,
+        "filter_beta": 0.7,
+    },
+}
+ASSISTIVE_PRESET_ORDER = ("balanced", "steady", "low_motion")
+
 
 def apply_dwell_profile(cfg: AppConfig, profile: str) -> AppConfig:
     """Apply one named dwell-click profile and enable dwell-click."""
@@ -399,9 +460,14 @@ def next_dwell_profile(current: str) -> str:
     return DWELL_PROFILE_ORDER[(idx + 1) % len(DWELL_PROFILE_ORDER)]
 
 
-def apply_assistive_profile(cfg: AppConfig) -> AppConfig:
+def apply_assistive_profile(cfg: AppConfig, preset: str = "balanced") -> AppConfig:
     """Tune defaults for low-effort, safer hands-free control."""
+    if preset not in ASSISTIVE_PRESETS:
+        preset = "balanced"
+    values = ASSISTIVE_PRESETS[preset]
+
     cfg.profile_name = "assistive"
+    cfg.assistive_preset = preset
     cfg.start_mode = "control"
 
     # Reliable baseline for low-power laptops and integrated GPUs.
@@ -410,24 +476,26 @@ def apply_assistive_profile(cfg: AppConfig) -> AppConfig:
     cfg.camera.target_fps = 30
 
     # Less physical travel, smoother motion, and click by dwell instead of pinch.
-    cfg.cursor.active_region = 0.45
-    cfg.cursor.sensitivity = 1.05
-    cfg.cursor.worker_easing = 0.30
-    apply_dwell_profile(cfg, "normal")
+    cfg.cursor.active_region = float(values["active_region"])
+    cfg.cursor.sensitivity = float(values["sensitivity"])
+    cfg.cursor.worker_easing = float(values["worker_easing"])
+    apply_dwell_profile(cfg, str(values["dwell_profile"]))
 
     # Reduce accidental high-energy gestures and CPU load.
     cfg.gestures.dwell_only_mode = True
     cfg.gestures.dynamic_enabled = False
     cfg.gestures.bimanual_enabled = False
-    cfg.gestures.pose_smoothing_window = max(cfg.gestures.pose_smoothing_window, 5)
-    cfg.gestures.scroll_speed = min(cfg.gestures.scroll_speed, 2.2)
+    cfg.gestures.pose_smoothing_window = max(
+        cfg.gestures.pose_smoothing_window, int(values["pose_window"])
+    )
+    cfg.gestures.scroll_speed = min(cfg.gestures.scroll_speed, float(values["scroll_speed"]))
 
     cfg.filter.type = "one_euro"
-    cfg.filter.one_euro_min_cutoff = 0.8
-    cfg.filter.one_euro_beta = 0.8
+    cfg.filter.one_euro_min_cutoff = float(values["filter_min_cutoff"])
+    cfg.filter.one_euro_beta = float(values["filter_beta"])
 
-    cfg.performance.detect_downscale = 0.5
-    cfg.performance.detect_max_fps = 24
+    cfg.performance.detect_downscale = float(values["detect_downscale"])
+    cfg.performance.detect_max_fps = int(values["detect_max_fps"])
 
     cfg.ui.show_hud = True
     cfg.ui.show_metrics = True
