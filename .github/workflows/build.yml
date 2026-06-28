@@ -139,3 +139,36 @@ jobs:
             AirControl-*.deb
             installer/AirControl-Setup.exe
           if-no-files-found: error
+
+  # Публикуем GitHub Release с установщиками только на тег v* — целиком внутри CI,
+  # без выгрузки гигабайтов через локальную машину разработчика.
+  release:
+    name: Опубликовать GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Скачать артефакты всех ОС
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Собрать установщики в один каталог
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f \( \
+            -name 'AirControl-*.zip' -o \
+            -name 'AirControl-*.tar.gz' -o \
+            -name 'AirControl-*.AppImage' -o \
+            -name 'AirControl-*.deb' -o \
+            -name 'AirControl-Setup.exe' \) -exec cp {} release-files/ \;
+          ls -la release-files
+
+      - name: Публикация релиза
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

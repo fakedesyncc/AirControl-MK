@@ -135,6 +135,13 @@ class AirControlApp:
         self.coordinator = MultimodalCoordinator(self.cfg.fusion, self.actions,
                                                  self.cursor, self.voice)
 
+        # Оценщик взгляда — опциональная ассистивная модальность. Создаём ТОЛЬКО
+        # при gaze_enabled; при недоступности модели/MediaPipe он молча
+        # отключается (gaze=None), и поведение «только рука» не меняется.
+        self.gaze = self._init_gaze_estimator()
+        self._last_gaze = None
+        self._gaze_phase = 0
+
         # --- Метрики и визуал ---
         self.fps = FPSMeter()
         self.telemetry = TelemetryLogger(self.cfg.telemetry, self.cfg.filter.type,
@@ -565,6 +572,37 @@ class AirControlApp:
                 traceback.print_exc()
                 time.sleep(0.01)
 
+    def _init_gaze_estimator(self):
+        """Создать оценщик взгляда, если фича включена и доступна.
+
+        Любой сбой (нет модели, нет MediaPipe) → None и тёплое сообщение, без
+        падения: gaze-режим просто не активируется."""
+        if not getattr(self.cfg.fusion, "gaze_enabled", False):
+            return None
+        try:
+            from .tracking.gaze import GazeEstimator
+            estimator = GazeEstimator(self.cfg.fusion.gaze)
+        except Exception as exc:
+            print(f"[gaze] Оценщик взгляда не создан: {exc}")
+            return None
+        if not estimator.ready:
+            print(f"[gaze] Взгляд отключён: {estimator.init_error}")
+            return None
+        print(f"[gaze] Оценщик взгляда готов (режим '{self.cfg.fusion.gaze_mode}')")
+        return estimator
+
+    def _estimate_gaze(self, frame):
+        """Оценка взгляда на текущем кадре с троттлингом (взгляд — грубый сигнал,
+        нет смысла гонять модель лица на каждом кадре). Возвращает последнюю
+        валидную оценку между прогонами; None — когда фича выключена."""
+        if self.gaze is None:
+            return None
+        # Запускаем модель лица реже детекции руки (каждый 2-й кадр) — экономия CPU.
+        self._gaze_phase = (self._gaze_phase + 1) % 2
+        if self._gaze_phase == 0 or self._last_gaze is None:
+            self._last_gaze = self.gaze.estimate(frame, time.time())
+        return self._last_gaze
+
     def _detect_hands_for_current_frame(self, frame):
         t0 = time.time()
         ds = self.cfg.performance.detect_downscale
@@ -611,7 +649,8 @@ class AirControlApp:
         hand = None if bimanual_active else self._pick_primary(hands)
         fg = self.engine.process(hand)
         self._last_pose = fg.pose
-        self.coordinator.process(fg, time.time())
+        gaze = None if bimanual_active else self._estimate_gaze(frame)
+        self.coordinator.process(fg, time.time(), gaze=gaze)
         for act in zoom_actions:
             self.actions.execute(act)
 
@@ -774,6 +813,8 @@ class AirControlApp:
         self.telemetry.close()
         self.camera.release()
         self.tracker.close()
+        if getattr(self, "gaze", None) is not None:
+            self.gaze.close()
         try:
             self._save_window_geometry()
             self.cfg.save()

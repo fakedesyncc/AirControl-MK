@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aircontrol.config import (
     ASSISTIVE_PRESETS,
     AppConfig,
+    DEFAULT_FACE_MODEL_PATH,
     DEFAULT_LOG_DIR,
     DEFAULT_ML_DATASET_PATH,
     DEFAULT_ML_MODEL_PATH,
@@ -475,68 +476,6 @@ class TestCursorBackend(unittest.TestCase):
         self.assertIsNone(cursor.update(shifted, after_cooldown))
         self.assertIsNone(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time - 0.01))
         self.assertEqual(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time), "left_click")
-
-
-class TestFusionCoordinator(unittest.TestCase):
-    class Cursor:
-        def __init__(self):
-            self.last = None
-
-        def update(self, fg, _timestamp):
-            self.last = fg
-            return None
-
-    class Actions:
-        def __init__(self):
-            self.executed = []
-
-        def execute(self, action):
-            self.executed.append(action)
-
-        def scroll(self, steps):
-            self.executed.append(f"scroll:{steps}")
-
-        def release_all(self):
-            self.executed.append("release_all")
-
-    def test_gaze_assist_blends_hand_cursor(self):
-        from aircontrol.fusion import GazeResult, MultimodalCoordinator
-
-        cfg = AppConfig().fusion
-        cfg.gaze_enabled = True
-        cfg.gaze_mode = "assist"
-        cfg.gaze_weight = 0.5
-        cursor = self.Cursor()
-        coordinator = MultimodalCoordinator(cfg, self.Actions(), cursor, None)
-        status = coordinator.process(
-            FrameGestures(hand_detected=True, cursor_norm=(0.2, 0.2), pose="point"),
-            timestamp=10.0,
-            gaze=GazeResult(point_norm=(0.8, 0.6), confidence=0.9, timestamp=10.0, source="test"),
-        )
-
-        self.assertTrue(status.gaze_active)
-        self.assertEqual(status.cursor_source, "hand+gaze")
-        self.assertAlmostEqual(cursor.last.cursor_norm[0], 0.5)
-        self.assertAlmostEqual(cursor.last.cursor_norm[1], 0.4)
-
-    def test_gaze_cursor_mode_can_drive_without_hand(self):
-        from aircontrol.fusion import GazeResult, MultimodalCoordinator
-
-        cfg = AppConfig().fusion
-        cfg.gaze_enabled = True
-        cfg.gaze_mode = "cursor"
-        cursor = self.Cursor()
-        coordinator = MultimodalCoordinator(cfg, self.Actions(), cursor, None)
-        status = coordinator.process(
-            FrameGestures(hand_detected=False, cursor_norm=None, pose="none"),
-            timestamp=10.0,
-            gaze=GazeResult(point_norm=(1.2, -0.2), confidence=0.9, timestamp=10.0),
-        )
-
-        self.assertTrue(status.gaze_active)
-        self.assertEqual(status.cursor_source, "gaze")
-        self.assertTrue(cursor.last.hand_detected)
-        self.assertEqual(cursor.last.cursor_norm, (1.0, 0.0))
 
 
 class TestLauncherConfig(unittest.TestCase):
@@ -1614,6 +1553,254 @@ class TestReleaseVerifier(unittest.TestCase):
         _check_speech_flac_policy([
             "AirControl/_internal/speech_recognition/flac-win32.exe",
         ], "Windows", "AirControl-Windows.zip")
+
+
+class _FakeLandmark:
+    """Минимальный лендмарк (.x/.y) для тестов чистой математики взгляда."""
+
+    __slots__ = ("x", "y")
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+class TestGazeMath(unittest.TestCase):
+    """Чистая математика взгляда (gaze_math) — без MediaPipe/камеры."""
+
+    def test_clamp01_bounds(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertEqual(gm.clamp01(-0.5), 0.0)
+        self.assertEqual(gm.clamp01(1.5), 1.0)
+        self.assertEqual(gm.clamp01(0.42), 0.42)
+
+    def test_iris_ratio_center_and_degenerate(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertAlmostEqual(gm.iris_ratio(0.5, 0.0, 1.0), 0.5)
+        self.assertEqual(gm.iris_ratio(0.0, 0.0, 1.0), 0.0)
+        self.assertEqual(gm.iris_ratio(2.0, 0.0, 1.0), 1.0)   # вне диапазона → clamp
+        self.assertEqual(gm.iris_ratio(0.5, 0.5, 0.5), 0.5)   # вырожденный глаз
+
+    def test_affine_fit_recovers_known_line(self):
+        from aircontrol.tracking import gaze_math as gm
+        a, b = gm.fit_affine_1d([0.0, 0.5, 1.0], [0.1, 1.1, 2.1])
+        self.assertAlmostEqual(a, 2.0)
+        self.assertAlmostEqual(b, 0.1)
+
+    def test_affine_fit_degenerate_returns_identity(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertEqual(gm.fit_affine_1d([0.5, 0.5, 0.5], [0.2, 0.3, 0.4]), (1.0, 0.0))
+        self.assertEqual(gm.fit_affine_1d([0.4], [0.9]), (1.0, 0.0))
+
+    def test_calibration_maps_corners(self):
+        from aircontrol.tracking import gaze_math as gm
+        cal = gm.GazeCalibration()
+        ok = cal.fit([((0.2, 0.3), (0.0, 0.0)), ((0.8, 0.7), (1.0, 1.0))])
+        self.assertTrue(ok)
+        self.assertAlmostEqual(cal.apply(0.2, 0.3)[0], 0.0)
+        self.assertAlmostEqual(cal.apply(0.2, 0.3)[1], 0.0)
+        self.assertAlmostEqual(cal.apply(0.8, 0.7)[0], 1.0)
+        self.assertAlmostEqual(cal.apply(0.8, 0.7)[1], 1.0)
+
+    def test_calibration_clamps_outside_range(self):
+        from aircontrol.tracking import gaze_math as gm
+        cal = gm.GazeCalibration()
+        cal.fit([((0.2, 0.3), (0.0, 0.0)), ((0.8, 0.7), (1.0, 1.0))])
+        self.assertEqual(cal.apply(2.0, 2.0), (1.0, 1.0))
+        self.assertEqual(cal.apply(-2.0, -2.0), (0.0, 0.0))
+
+    def test_calibration_default_is_identity(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertEqual(gm.GazeCalibration().apply(0.42, 0.66), (0.42, 0.66))
+
+    def test_calibration_rejects_too_few_samples(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertFalse(gm.GazeCalibration().fit([((0.1, 0.1), (0.0, 0.0))]))
+
+    def test_eye_openness_quality_range(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertEqual(gm.eye_openness_quality(0.1, 0.03, 0.1, 0.03), 1.0)  # ratio 0.3
+        self.assertEqual(gm.eye_openness_quality(0.1, 0.0, 0.1, 0.0), 0.0)    # закрыт
+        self.assertTrue(0.0 <= gm.eye_openness_quality(0.1, 0.015, 0.1, 0.015) <= 1.0)
+
+    def test_raw_gaze_from_centered_iris(self):
+        from aircontrol.tracking import gaze_math as gm
+        n = gm.MIN_IRIS_INDEX + 1
+        lms = [_FakeLandmark(0.5, 0.5) for _ in range(n)]
+        lms[gm.LEFT_EYE_OUTER] = _FakeLandmark(0.40, 0.50)
+        lms[gm.LEFT_EYE_INNER] = _FakeLandmark(0.50, 0.50)
+        lms[gm.LEFT_EYE_TOP] = _FakeLandmark(0.45, 0.45)
+        lms[gm.LEFT_EYE_BOTTOM] = _FakeLandmark(0.45, 0.55)
+        lms[gm.LEFT_IRIS] = _FakeLandmark(0.45, 0.50)
+        lms[gm.RIGHT_EYE_INNER] = _FakeLandmark(0.55, 0.50)
+        lms[gm.RIGHT_EYE_OUTER] = _FakeLandmark(0.65, 0.50)
+        lms[gm.RIGHT_EYE_TOP] = _FakeLandmark(0.60, 0.45)
+        lms[gm.RIGHT_EYE_BOTTOM] = _FakeLandmark(0.60, 0.55)
+        lms[gm.RIGHT_IRIS] = _FakeLandmark(0.60, 0.50)
+        raw = gm.raw_gaze_from_landmarks(lms)
+        self.assertIsNotNone(raw)
+        rx, ry, q = raw
+        self.assertAlmostEqual(rx, 0.5)
+        self.assertAlmostEqual(ry, 0.5)
+        self.assertTrue(0.0 <= q <= 1.0)
+
+    def test_raw_gaze_rejects_landmarks_without_iris(self):
+        from aircontrol.tracking import gaze_math as gm
+        self.assertIsNone(gm.raw_gaze_from_landmarks([_FakeLandmark(0, 0)] * 10))
+        self.assertIsNone(gm.raw_gaze_from_landmarks(None))
+
+    def test_ema_smoothing(self):
+        from aircontrol.tracking import gaze_math as gm
+        ema = gm.EMA2D(0.5)
+        self.assertEqual(ema(1.0, 1.0), (1.0, 1.0))   # первый кадр проходит как есть
+        sx, sy = ema(0.0, 0.0)
+        self.assertAlmostEqual(sx, 0.5)
+        self.assertAlmostEqual(sy, 0.5)
+        ema.reset()
+        self.assertEqual(ema(0.3, 0.3), (0.3, 0.3))
+
+
+class TestGazeFusion(unittest.TestCase):
+    """Логика слияния руки и взгляда в координаторе (без MediaPipe-вызовов)."""
+
+    def test_fuse_hand_only(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        self.assertEqual(fuse_cursor_point((0.2, 0.2), None, mode="assist", weight=0.5),
+                         (0.2, 0.2))
+
+    def test_fuse_gaze_fallback_when_no_hand(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        self.assertEqual(fuse_cursor_point(None, (0.7, 0.7), mode="assist", weight=0.5),
+                         (0.7, 0.7))
+        self.assertEqual(fuse_cursor_point(None, (0.7, 0.7), mode="cursor", weight=0.5),
+                         (0.7, 0.7))
+
+    def test_fuse_cursor_mode_hand_wins(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        self.assertEqual(fuse_cursor_point((0.2, 0.2), (0.8, 0.8), mode="cursor", weight=0.9),
+                         (0.2, 0.2))
+
+    def test_fuse_assist_mode_convex_blend(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        fx, fy = fuse_cursor_point((0.0, 0.0), (1.0, 1.0), mode="assist", weight=0.25)
+        self.assertAlmostEqual(fx, 0.25)
+        self.assertAlmostEqual(fy, 0.25)
+
+    def test_fuse_weight_is_clamped(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        self.assertEqual(fuse_cursor_point((0.0, 0.0), (1.0, 1.0), mode="assist", weight=2.0),
+                         (1.0, 1.0))
+        self.assertEqual(fuse_cursor_point((0.0, 0.0), (1.0, 1.0), mode="assist", weight=-1.0),
+                         (0.0, 0.0))
+
+    def test_fuse_both_none(self):
+        from aircontrol.fusion.coordinator import fuse_cursor_point
+        self.assertIsNone(fuse_cursor_point(None, None, mode="assist", weight=0.5))
+
+    def test_gaze_result_freshness_and_validity(self):
+        from aircontrol.fusion.coordinator import GazeResult
+        now = 100.0
+        self.assertFalse(GazeResult(valid=False, timestamp=now).is_fresh(now, 0.3))
+        self.assertTrue(GazeResult(valid=True, timestamp=now).is_fresh(now + 0.1, 0.3))
+        self.assertFalse(GazeResult(valid=True, timestamp=now).is_fresh(now + 0.5, 0.3))
+        # Нулевой timestamp (синтетика/без часов) считаем свежим.
+        self.assertTrue(GazeResult(valid=True, timestamp=0.0).is_fresh(now, 0.3))
+
+    def test_gaze_result_point_property(self):
+        from aircontrol.fusion.coordinator import GazeResult
+        self.assertEqual(GazeResult(x=0.3, y=0.6).point, (0.3, 0.6))
+
+
+class TestGazeConfig(unittest.TestCase):
+    def test_gaze_defaults_are_off_and_safe(self):
+        cfg = AppConfig()
+        self.assertFalse(cfg.fusion.gaze_enabled)
+        self.assertEqual(cfg.fusion.gaze_mode, "assist")
+        self.assertEqual(cfg.fusion.gaze.cal_ax, 1.0)
+        self.assertEqual(cfg.fusion.gaze.cal_bx, 0.0)
+        self.assertEqual(cfg.fusion.gaze.model_path, DEFAULT_FACE_MODEL_PATH)
+
+    def test_gaze_config_roundtrip(self):
+        cfg = AppConfig()
+        cfg.fusion.gaze_enabled = True
+        cfg.fusion.gaze_mode = "cursor"
+        cfg.fusion.gaze.cal_ax = 1.7
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.json")
+            cfg.save(path)
+            loaded = AppConfig.load(path)
+        self.assertTrue(loaded.fusion.gaze_enabled)
+        self.assertEqual(loaded.fusion.gaze_mode, "cursor")
+        self.assertAlmostEqual(loaded.fusion.gaze.cal_ax, 1.7)
+
+    def test_gaze_model_path_repaired_when_stale(self):
+        old = "/tmp/old/Hand Mouse Controller"
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.json")
+            with open(path, "w") as f:
+                f.write(
+                    "{"
+                    f'"fusion": {{"gaze": {{"model_path": '
+                    f'"{old}/aircontrol/face_landmarker.task"}}}}'
+                    "}"
+                )
+            loaded = AppConfig.load(path)
+        self.assertEqual(loaded.fusion.gaze.model_path, DEFAULT_FACE_MODEL_PATH)
+
+
+class TestSwipeTraining(unittest.TestCase):
+    """Round-trip обучения временной модели свайпов: train → export .npz → load
+    рантаймом → предсказание. Доказывает совпадение формата экспорта и инференса.
+
+    Всё на чистом numpy (без mediapipe/камеры) — тест детерминирован и не виснет."""
+
+    def _train_and_load(self, backend):
+        from tools import train_swipe_model as T
+        from aircontrol.gestures.dynamic import TemporalSwipeSequenceModel, SWIPE_LABELS
+
+        seed = 1234
+        classes = list(SWIPE_LABELS)
+        seq_len = 24
+        points, labels = T.generate_synthetic(n_per_class=60, seed=seed)
+        X, y = T.build_tensors(points, labels, seq_len, classes)
+        tr_idx, te_idx = T.stratified_split(y, test_frac=0.25, seed=seed)
+        Xtr, ytr = X[tr_idx], y[tr_idx]
+        pts_te = [points[i] for i in te_idx]
+        lab_te = [labels[i] for i in te_idx]
+
+        if backend == "tcn":
+            weights = T.train_tcn(Xtr, ytr, len(classes), out_ch=12, kernel=3,
+                                  epochs=60, lr=0.01, seed=seed)
+        else:
+            weights = T.train_lstm_numpy(Xtr, ytr, len(classes), hidden=16,
+                                         epochs=80, lr=0.02, seed=seed)
+
+        tmp = tempfile.mkdtemp()
+        out = os.path.join(tmp, "swipe_model.npz")
+        T.export_npz(out, backend, classes, seq_len, weights)
+        model = TemporalSwipeSequenceModel.load(out, backend)
+        self.assertIsNotNone(model, "экспортированную модель не загрузил рантайм")
+        return model, pts_te, lab_te
+
+    def test_tcn_roundtrip_accuracy(self):
+        model, pts_te, lab_te = self._train_and_load("tcn")
+        correct = sum(model.predict(p)[0] == t for p, t in zip(pts_te, lab_te))
+        acc = correct / len(lab_te)
+        self.assertGreaterEqual(acc, 0.8, f"TCN accuracy={acc:.3f} ниже 0.8")
+
+    def test_tcn_classifies_clear_right_swipe(self):
+        model, _, _ = self._train_and_load("tcn")
+        # Явный свайп вправо: горизонтальная траектория слева направо.
+        pts = [(0.40 + 0.04 * i, 0.50) for i in range(8)]
+        label, conf = model.predict(pts)
+        self.assertEqual(label, "swipe_right", f"получено {label} ({conf:.2f})")
+
+    def test_export_format_fields_present(self):
+        model, _, _ = self._train_and_load("tcn")
+        # in_ch обязан быть 4 (контракт признаков [x, y, dx, dy]).
+        self.assertEqual(model.arrays["conv_w"].shape[1], 4)
+        self.assertTrue(set(("swipe_left", "swipe_right", "swipe_up",
+                             "swipe_down")).issubset(set(model.labels)))
 
 
 if __name__ == "__main__":
