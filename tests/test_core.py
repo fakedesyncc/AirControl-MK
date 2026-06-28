@@ -109,6 +109,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.cursor.dwell_profile, "steady")
         self.assertAlmostEqual(cfg.cursor.dwell_time, 1.70)
         self.assertEqual(cfg.cursor.dwell_radius, 68)
+        self.assertAlmostEqual(cfg.cursor.dwell_cooldown, 1.20)
 
     def test_dwell_profile_fallback_and_cycle(self):
         cfg = apply_dwell_profile(AppConfig(), "missing")
@@ -437,6 +438,24 @@ class TestCursorBackend(unittest.TestCase):
         cursor.step()
         self.assertEqual(first.position, (1, 1))
         self.assertNotEqual(second.position, (10, 10))
+
+    def test_dwell_cooldown_prevents_repeat_clicks(self):
+        cfg = AppConfig()
+        apply_dwell_profile(cfg, "fast")
+        cursor = CursorController(cfg.cursor, cfg.filter, self.DummyMouse((0, 0)), (100, 100))
+        fg = FrameGestures(hand_detected=True, cursor_norm=(0.5, 0.5))
+
+        self.assertIsNone(cursor.update(fg, 0.0))
+        self.assertEqual(cursor.update(fg, cfg.cursor.dwell_time), "left_click")
+
+        shifted = FrameGestures(hand_detected=True, cursor_norm=(0.6, 0.5))
+        self.assertIsNone(cursor.update(shifted, cfg.cursor.dwell_time + 0.1))
+        self.assertEqual(cursor.dwell_progress, 0.0)
+
+        after_cooldown = cfg.cursor.dwell_time + cfg.cursor.dwell_cooldown + 0.1
+        self.assertIsNone(cursor.update(shifted, after_cooldown))
+        self.assertIsNone(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time - 0.01))
+        self.assertEqual(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time), "left_click")
 
 
 class TestLauncherConfig(unittest.TestCase):
@@ -1159,6 +1178,7 @@ class TestDiagnostics(unittest.TestCase):
                                           "safe_input": True,
                                           "dwell_enabled": True,
                                           "dwell_profile": "steady",
+                                          "dwell_cooldown": 1.2,
                                           "dwell_only_mode": True,
                                           "input_status": "DRY INPUT",
                                           "hand_detected": False,
@@ -1197,6 +1217,7 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn('"profile": "assistive"', runtime)
             self.assertIn('"dwell_enabled": true', runtime)
             self.assertIn('"dwell_profile": "steady"', runtime)
+            self.assertIn('"dwell_cooldown": 1.2', runtime)
             self.assertIn('"dwell_only_mode": true', runtime)
             self.assertIn('"summary":', runtime)
             self.assertIn("Profile: assistive", summary)
@@ -1204,6 +1225,7 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn("Safe input: ON", summary)
             self.assertIn("Dwell-click: ON", summary)
             self.assertIn("Dwell profile: steady", summary)
+            self.assertIn("Dwell cooldown: 1.2 s", summary)
             self.assertIn("One-gesture mode: ON", summary)
             self.assertIn("Last action: left_click (1.25s ago)", summary)
             self.assertIn("Safe input is ON", summary)

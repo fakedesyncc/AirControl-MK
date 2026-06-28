@@ -126,6 +126,7 @@ class CursorConfig:
     dwell_profile: str = "custom"     # "fast" | "normal" | "steady" | "custom"
     dwell_time: float = 1.0           # сек удержания для срабатывания
     dwell_radius: int = 35            # допустимый дрейф курсора, px
+    dwell_cooldown: float = 0.8       # пауза после клика, чтобы не было повторов
 
 
 @dataclass
@@ -370,9 +371,9 @@ def _looks_like_stale_aircontrol_path(path: str) -> bool:
 
 
 DWELL_PROFILES = {
-    "fast": {"time": 0.75, "radius": 32, "label": "fast"},
-    "normal": {"time": 1.15, "radius": 48, "label": "normal"},
-    "steady": {"time": 1.70, "radius": 68, "label": "steady"},
+    "fast": {"time": 0.75, "radius": 32, "cooldown": 0.55, "label": "fast"},
+    "normal": {"time": 1.15, "radius": 48, "cooldown": 0.85, "label": "normal"},
+    "steady": {"time": 1.70, "radius": 68, "cooldown": 1.20, "label": "steady"},
 }
 DWELL_PROFILE_ORDER = ("fast", "normal", "steady")
 
@@ -386,6 +387,7 @@ def apply_dwell_profile(cfg: AppConfig, profile: str) -> AppConfig:
     cfg.cursor.dwell_profile = profile
     cfg.cursor.dwell_time = float(values["time"])
     cfg.cursor.dwell_radius = int(values["radius"])
+    cfg.cursor.dwell_cooldown = float(values["cooldown"])
     return cfg
 
 

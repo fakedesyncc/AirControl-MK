@@ -30,6 +30,7 @@ class CursorController:
         self._dwell_anchor: Optional[Tuple[int, int]] = None
         self._dwell_start = 0.0
         self._dwell_fired = False
+        self._dwell_cooldown_until = 0.0
         self.last_screen_pos: Tuple[int, int] = (0, 0)
         self.dwell_progress = 0.0   # [0..1] для отрисовки прогресса в UI
 
@@ -131,6 +132,10 @@ class CursorController:
             self._reset_dwell()
             return None
 
+        if now < self._dwell_cooldown_until:
+            self._reset_dwell()
+            return None
+
         if self._dwell_anchor is None:
             self._dwell_anchor = (sx, sy)
             self._dwell_start = now
@@ -153,6 +158,8 @@ class CursorController:
         if elapsed >= self.cfg.dwell_time and not self._dwell_fired:
             self._dwell_fired = True
             self.dwell_progress = 1.0
+            cooldown = max(0.0, getattr(self.cfg, "dwell_cooldown", 0.0))
+            self._dwell_cooldown_until = now + cooldown
             return "left_click"
         return None
 

@@ -353,7 +353,8 @@ class AirControlApp:
         self._refresh_controls()
         self._toast_msg(
             f"dwell profile: {profile} "
-            f"({self.cfg.cursor.dwell_time:.2f}s, {self.cfg.cursor.dwell_radius}px)"
+            f"({self.cfg.cursor.dwell_time:.2f}s, {self.cfg.cursor.dwell_radius}px, "
+            f"cooldown {self.cfg.cursor.dwell_cooldown:.2f}s)"
         )
 
     def _toggle(self, attr: str):
@@ -412,6 +413,7 @@ class AirControlApp:
             "safe_input": self.cfg.input.dry_run,
             "dwell_enabled": self.cfg.cursor.dwell_enabled,
             "dwell_profile": self.cfg.cursor.dwell_profile,
+            "dwell_cooldown": self.cfg.cursor.dwell_cooldown,
             "dwell_only_mode": self.cfg.gestures.dwell_only_mode,
             "last_action": self.actions.last_action,
             "seconds_since_action": seconds_since_action,

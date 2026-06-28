@@ -305,6 +305,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
     safe_input = _bool_or_none(runtime_info.get("safe_input"))
     dwell_enabled = _bool_or_none(runtime_info.get("dwell_enabled"))
     dwell_profile = str(runtime_info.get("dwell_profile", "unknown") or "unknown")
+    dwell_cooldown = _float_or_none(runtime_info.get("dwell_cooldown"))
     dwell_only_mode = _bool_or_none(runtime_info.get("dwell_only_mode"))
     last_action = str(runtime_info.get("last_action", "") or "")
     seconds_since_action = runtime_info.get("seconds_since_action")
@@ -328,6 +329,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
         f"Safe input: {_on_off_unknown(safe_input)}",
         f"Dwell-click: {_on_off_unknown(dwell_enabled)}",
         f"Dwell profile: {dwell_profile}",
+        f"Dwell cooldown: {dwell_cooldown if dwell_cooldown is not None else 'unknown'} s",
         f"One-gesture mode: {_on_off_unknown(dwell_only_mode)}",
         f"Input: {input_status}",
         f"Hand detected: {hand_detected}",
@@ -669,6 +671,7 @@ def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:
     lines.append(f"dwell_profile: {getattr(cfg.cursor, 'dwell_profile', 'custom')}")
     lines.append(f"dwell_time: {cfg.cursor.dwell_time}")
     lines.append(f"dwell_radius: {cfg.cursor.dwell_radius}")
+    lines.append(f"dwell_cooldown: {cfg.cursor.dwell_cooldown}")
     lines.append(f"dwell_only_mode: {cfg.gestures.dwell_only_mode}")
     lines.append(f"dynamic_enabled: {cfg.gestures.dynamic_enabled}")
     lines.append(f"bimanual_enabled: {cfg.gestures.bimanual_enabled}")
