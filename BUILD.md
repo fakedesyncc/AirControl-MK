@@ -17,14 +17,20 @@ Python, компилятор или консоль: PyInstaller кладёт run
 
 ## GitHub Actions
 
-Workflow: `.github/workflows/build.yml`.
+Workflows:
 
-Сборка запускается:
+- `.github/workflows/ci.yml` - быстрые проверки исходников на Ubuntu;
+- `.github/workflows/build.yml` - тяжёлая сборка установщиков и архивов под
+  Windows, macOS и Linux.
+
+Оба workflow запускаются:
 
 - при push в `main`;
 - при pull request в `main`;
-- при push тега `v*`, например `v1.0.0`;
 - вручную через `Actions -> Build AirControl -> Run workflow`.
+
+Дополнительно `Build AirControl` запускается при push тега `v*`, например
+`v1.0.0`.
 
 Важно: GitHub показывает и запускает workflow как обычный проектный workflow
 только после того, как файл `.github/workflows/build.yml` находится в default

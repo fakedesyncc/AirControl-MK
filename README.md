@@ -13,6 +13,9 @@
   <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml">
     <img alt="Build" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml/badge.svg">
   </a>
+  <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml/badge.svg">
+  </a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-2f3340">
   <img alt="Accessibility" src="https://img.shields.io/badge/focus-accessibility-2f855a">
@@ -194,6 +197,8 @@ python tools/smoke_build.py
 
 PyInstaller не кросс-компилирует. Полные сборки под Windows, macOS и Linux
 делает workflow [Build AirControl](https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml).
+Быстрая проверка исходников вынесена в workflow
+[CI](https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml).
 
 ## Структура
 
