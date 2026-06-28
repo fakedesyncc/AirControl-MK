@@ -301,6 +301,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
     input_status = str(runtime_info.get("input_status", "unknown"))
     safe_input = _bool_or_none(runtime_info.get("safe_input"))
     dwell_enabled = _bool_or_none(runtime_info.get("dwell_enabled"))
+    dwell_profile = str(runtime_info.get("dwell_profile", "unknown") or "unknown")
     last_action = str(runtime_info.get("last_action", "") or "")
     seconds_since_action = runtime_info.get("seconds_since_action")
     last_input_error = str(runtime_info.get("last_input_error", "") or "")
@@ -322,6 +323,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
         f"Control path: {_runtime_control_path(mode, input_status, safe_input)}",
         f"Safe input: {_on_off_unknown(safe_input)}",
         f"Dwell-click: {_on_off_unknown(dwell_enabled)}",
+        f"Dwell profile: {dwell_profile}",
         f"Input: {input_status}",
         f"Hand detected: {hand_detected}",
         f"FPS: {fps if fps is not None else 'unknown'}",
@@ -659,6 +661,9 @@ def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:
     lines.append(f"detect_downscale: {cfg.performance.detect_downscale}")
     lines.append(f"detect_max_fps: {cfg.performance.detect_max_fps}")
     lines.append(f"dwell_enabled: {cfg.cursor.dwell_enabled}")
+    lines.append(f"dwell_profile: {getattr(cfg.cursor, 'dwell_profile', 'custom')}")
+    lines.append(f"dwell_time: {cfg.cursor.dwell_time}")
+    lines.append(f"dwell_radius: {cfg.cursor.dwell_radius}")
     lines.append(f"dynamic_enabled: {cfg.gestures.dynamic_enabled}")
     lines.append(f"bimanual_enabled: {cfg.gestures.bimanual_enabled}")
 

@@ -20,6 +20,7 @@
 - [x] Стартовое окно без консоли.
 - [x] Safe/View режим без реального ввода.
 - [x] Ассистивный профиль с dwell-click.
+- [x] Dwell-click profiles: быстрый, обычный, устойчивый.
 - [x] Калибровка активной зоны и щипка.
 - [x] Doctor и support ZIP.
 - [x] Linux input diagnostics: Xorg/Wayland, `xdotool`, `ydotool`.

@@ -25,6 +25,8 @@ from aircontrol.config import (
     DEFAULT_MODEL_PATH,
     FilterConfig,
     apply_assistive_profile,
+    apply_dwell_profile,
+    next_dwell_profile,
 )
 from aircontrol.control.actions import ActionExecutor
 from aircontrol.control.cursor import CursorController
@@ -93,11 +95,27 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.start_mode, "control")
         self.assertEqual((cfg.camera.width, cfg.camera.height), (480, 360))
         self.assertTrue(cfg.cursor.dwell_enabled)
+        self.assertEqual(cfg.cursor.dwell_profile, "normal")
         self.assertLess(cfg.cursor.active_region, 0.55)
         self.assertFalse(cfg.gestures.dynamic_enabled)
         self.assertFalse(cfg.gestures.bimanual_enabled)
         self.assertEqual(cfg.performance.detect_downscale, 0.5)
         self.assertEqual(cfg.performance.detect_max_fps, 24)
+
+    def test_dwell_profiles_apply_named_values(self):
+        cfg = apply_dwell_profile(AppConfig(), "steady")
+        self.assertTrue(cfg.cursor.dwell_enabled)
+        self.assertEqual(cfg.cursor.dwell_profile, "steady")
+        self.assertAlmostEqual(cfg.cursor.dwell_time, 1.70)
+        self.assertEqual(cfg.cursor.dwell_radius, 68)
+
+    def test_dwell_profile_fallback_and_cycle(self):
+        cfg = apply_dwell_profile(AppConfig(), "missing")
+        self.assertEqual(cfg.cursor.dwell_profile, "normal")
+        self.assertEqual(next_dwell_profile("fast"), "normal")
+        self.assertEqual(next_dwell_profile("normal"), "steady")
+        self.assertEqual(next_dwell_profile("steady"), "fast")
+        self.assertEqual(next_dwell_profile("custom"), "fast")
 
 
 class TestInputSafety(unittest.TestCase):
@@ -801,6 +819,23 @@ class TestPreviewMode(unittest.TestCase):
         self.assertIn("Slow detection 82ms: reduce resolution or lighting load", lines)
         self.assertFalse(any("Hand not found" in line for line in lines))
 
+    def test_runtime_cycle_dwell_profile_enables_dwell(self):
+        from aircontrol.app import AirControlApp
+
+        cfg = AppConfig()
+        calls = []
+        app = type("FakeApp", (), {})()
+        app.cfg = cfg
+        app._refresh_controls = lambda: calls.append("refresh")
+        app._toast_msg = lambda msg: calls.append(msg)
+
+        AirControlApp.cycle_dwell_profile(app)
+
+        self.assertTrue(cfg.cursor.dwell_enabled)
+        self.assertEqual(cfg.cursor.dwell_profile, "fast")
+        self.assertIn("refresh", calls)
+        self.assertTrue(any("dwell profile: fast" in str(call) for call in calls))
+
     def test_control_mode_reports_missing_hand(self):
         from aircontrol.app import build_runtime_health_lines
         lines = build_runtime_health_lines(
@@ -1076,6 +1111,7 @@ class TestDiagnostics(unittest.TestCase):
                                           "profile": "assistive",
                                           "safe_input": True,
                                           "dwell_enabled": True,
+                                          "dwell_profile": "steady",
                                           "input_status": "DRY INPUT",
                                           "hand_detected": False,
                                           "last_action": "left_click",
@@ -1112,11 +1148,13 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn('"fps": 12.5', runtime)
             self.assertIn('"profile": "assistive"', runtime)
             self.assertIn('"dwell_enabled": true', runtime)
+            self.assertIn('"dwell_profile": "steady"', runtime)
             self.assertIn('"summary":', runtime)
             self.assertIn("Profile: assistive", summary)
             self.assertIn("Control path: OFF (Safe input)", summary)
             self.assertIn("Safe input: ON", summary)
             self.assertIn("Dwell-click: ON", summary)
+            self.assertIn("Dwell profile: steady", summary)
             self.assertIn("Last action: left_click (1.25s ago)", summary)
             self.assertIn("Safe input is ON", summary)
             self.assertIn("Low FPS", summary)

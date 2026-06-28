@@ -22,7 +22,7 @@ import cv2
 from PIL import Image, ImageTk
 
 from . import __app_name__, __version__
-from .config import AppConfig
+from .config import AppConfig, apply_dwell_profile, next_dwell_profile
 from .control import ActionExecutor, CursorController
 from .evaluation.metrics import FPSMeter, TelemetryLogger
 from .fusion import MultimodalCoordinator
@@ -213,6 +213,7 @@ class AirControlApp:
         add("mode", "Control", self.toggle_mode, primary=True)
         add("safe", "Safe", self.toggle_safe_input)
         add("dwell", "Dwell", self.toggle_dwell)
+        add("dwell_profile", "Dwell profile", self.cycle_dwell_profile)
         add("minus", "-", lambda: self.change_sensitivity(-0.1))
         add("plus", "+", lambda: self.change_sensitivity(0.1))
         add("report", "Report", self.save_diagnostic_report)
@@ -323,8 +324,19 @@ class AirControlApp:
 
     def toggle_dwell(self):
         self.cfg.cursor.dwell_enabled = not self.cfg.cursor.dwell_enabled
+        if self.cfg.cursor.dwell_enabled and self.cfg.cursor.dwell_profile == "custom":
+            apply_dwell_profile(self.cfg, "normal")
         self._refresh_controls()
         self._toast_msg(f"dwell-click: {'ON' if self.cfg.cursor.dwell_enabled else 'OFF'}")
+
+    def cycle_dwell_profile(self):
+        profile = next_dwell_profile(getattr(self.cfg.cursor, "dwell_profile", "custom"))
+        apply_dwell_profile(self.cfg, profile)
+        self._refresh_controls()
+        self._toast_msg(
+            f"dwell profile: {profile} "
+            f"({self.cfg.cursor.dwell_time:.2f}s, {self.cfg.cursor.dwell_radius}px)"
+        )
 
     def _toggle(self, attr: str):
         setattr(self.cfg.ui, attr, not getattr(self.cfg.ui, attr))
@@ -381,6 +393,7 @@ class AirControlApp:
             "profile": self.cfg.profile_name,
             "safe_input": self.cfg.input.dry_run,
             "dwell_enabled": self.cfg.cursor.dwell_enabled,
+            "dwell_profile": self.cfg.cursor.dwell_profile,
             "last_action": self.actions.last_action,
             "seconds_since_action": seconds_since_action,
             "last_input_error": self.actions.last_input_error,
@@ -425,6 +438,13 @@ class AirControlApp:
         if "dwell" in buttons:
             buttons["dwell"].configure(
                 text="Dwell ON" if self.cfg.cursor.dwell_enabled else "Dwell OFF",
+                bg="#43d17d" if self.cfg.cursor.dwell_enabled else "#26313b",
+                fg="#07100b" if self.cfg.cursor.dwell_enabled else "#f1f5f8",
+            )
+        if "dwell_profile" in buttons:
+            profile = getattr(self.cfg.cursor, "dwell_profile", "custom")
+            buttons["dwell_profile"].configure(
+                text=f"Dwell {profile}",
                 bg="#43d17d" if self.cfg.cursor.dwell_enabled else "#26313b",
                 fg="#07100b" if self.cfg.cursor.dwell_enabled else "#f1f5f8",
             )

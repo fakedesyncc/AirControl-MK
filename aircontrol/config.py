@@ -123,6 +123,7 @@ class CursorConfig:
     worker_easing: float = 0.4
     # Dwell-click — клик по наведению (ассистивный режим, без щипка).
     dwell_enabled: bool = False
+    dwell_profile: str = "custom"     # "fast" | "normal" | "steady" | "custom"
     dwell_time: float = 1.0           # сек удержания для срабатывания
     dwell_radius: int = 35            # допустимый дрейф курсора, px
 
@@ -366,6 +367,34 @@ def _looks_like_stale_aircontrol_path(path: str) -> bool:
         return False
 
 
+DWELL_PROFILES = {
+    "fast": {"time": 0.75, "radius": 32, "label": "fast"},
+    "normal": {"time": 1.15, "radius": 48, "label": "normal"},
+    "steady": {"time": 1.70, "radius": 68, "label": "steady"},
+}
+DWELL_PROFILE_ORDER = ("fast", "normal", "steady")
+
+
+def apply_dwell_profile(cfg: AppConfig, profile: str) -> AppConfig:
+    """Apply one named dwell-click profile and enable dwell-click."""
+    if profile not in DWELL_PROFILES:
+        profile = "normal"
+    values = DWELL_PROFILES[profile]
+    cfg.cursor.dwell_enabled = True
+    cfg.cursor.dwell_profile = profile
+    cfg.cursor.dwell_time = float(values["time"])
+    cfg.cursor.dwell_radius = int(values["radius"])
+    return cfg
+
+
+def next_dwell_profile(current: str) -> str:
+    """Return the next named dwell profile for UI cycling."""
+    if current not in DWELL_PROFILE_ORDER:
+        return DWELL_PROFILE_ORDER[0]
+    idx = DWELL_PROFILE_ORDER.index(current)
+    return DWELL_PROFILE_ORDER[(idx + 1) % len(DWELL_PROFILE_ORDER)]
+
+
 def apply_assistive_profile(cfg: AppConfig) -> AppConfig:
     """Tune defaults for low-effort, safer hands-free control."""
     cfg.profile_name = "assistive"
@@ -380,9 +409,7 @@ def apply_assistive_profile(cfg: AppConfig) -> AppConfig:
     cfg.cursor.active_region = 0.45
     cfg.cursor.sensitivity = 1.05
     cfg.cursor.worker_easing = 0.30
-    cfg.cursor.dwell_enabled = True
-    cfg.cursor.dwell_time = 1.15
-    cfg.cursor.dwell_radius = 48
+    apply_dwell_profile(cfg, "normal")
 
     # Reduce accidental high-energy gestures and CPU load.
     cfg.gestures.dynamic_enabled = False
