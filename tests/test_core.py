@@ -525,6 +525,69 @@ class TestLauncherConfig(unittest.TestCase):
 
         self.assertTrue(ok)
 
+    def test_first_run_status_ready_path(self):
+        from aircontrol.launcher import build_first_run_status
+
+        statuses = build_first_run_status(
+            "OpenCV: OK\nMediaPipe: OK\nHand model: OK (/tmp/model)\nTkinter: OK\n"
+            "Camera scan: 0..1\ncamera[0]: OK frame=(360, 480, 3)\n"
+            "input backend: OK (pynput)\n"
+            "input probe: OK (backend=pynput; mouse_move=requested; backend initialized)\n"
+            "input mouse move probe: OK (mouse moved and was restored near the original position)\n",
+            ["Status: ready for safe training."],
+        )
+
+        by_id = {item["id"]: item for item in statuses}
+        self.assertEqual(by_id["camera"]["status"], "ok")
+        self.assertEqual(by_id["input"]["status"], "ok")
+        self.assertEqual(by_id["performance"]["status"], "pending")
+        self.assertEqual(by_id["next"]["status"], "ok")
+
+    def test_first_run_status_blocks_when_camera_missing(self):
+        from aircontrol.launcher import build_first_run_status
+
+        statuses = build_first_run_status(
+            "OpenCV: OK\nMediaPipe: OK\nHand model: OK (/tmp/model)\nTkinter: OK\n"
+            "Camera scan: 0..1\ncamera[0]: not available\n"
+            "input backend: OK (pynput)\ninput probe: OK (backend=pynput)\n",
+            ["Status: needs attention before assistive control."],
+        )
+
+        by_id = {item["id"]: item for item in statuses}
+        self.assertEqual(by_id["camera"]["status"], "fail")
+        self.assertEqual(by_id["next"]["status"], "fail")
+        self.assertIn("ZIP", by_id["next"]["message"])
+
+    def test_first_run_status_warns_when_input_probe_skipped(self):
+        from aircontrol.launcher import build_first_run_status
+
+        statuses = build_first_run_status(
+            "OpenCV: OK\nMediaPipe: OK\nHand model: OK (/tmp/model)\nTkinter: OK\n"
+            "Camera scan: 0..1\ncamera[0]: OK frame=(360, 480, 3)\n"
+            "input backend: OK (ydotool)\n"
+            "input probe: WARN (backend=ydotool; mouse_move=requested; visible movement skipped)\n"
+            "input mouse move probe: SKIPPED (ydotool cannot safely read the current cursor position)\n",
+            ["Status: ready for safe training."],
+        )
+
+        by_id = {item["id"]: item for item in statuses}
+        self.assertEqual(by_id["camera"]["status"], "ok")
+        self.assertEqual(by_id["input"]["status"], "warn")
+        self.assertEqual(by_id["next"]["status"], "warn")
+
+    def test_first_run_report_contains_summary_and_doctor(self):
+        from aircontrol.launcher import format_first_run_report
+
+        report = format_first_run_report(
+            [{"id": "camera", "title": "Камера", "status": "ok", "message": "готова"}],
+            ["Status: ready for safe training."],
+            "OpenCV: OK",
+        )
+
+        self.assertIn("AirControl first-run wizard", report)
+        self.assertIn("Status: ready for safe training.", report)
+        self.assertIn("OpenCV: OK", report)
+
     def test_launcher_launch_success_destroys_root_and_runs_app(self):
         from aircontrol.launcher import _launch_aircontrol_from_launcher
 

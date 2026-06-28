@@ -25,6 +25,7 @@
 - [x] Linux input diagnostics: Xorg/Wayland, `xdotool`, `ydotool`.
 - [x] Native Go helper для проверки ОС, Linux-сессии, камер и системных утилит.
 - [x] Preflight перед реальным ассистивным управлением: безопасная проверка input backend.
+- [x] Мастер первого запуска: камера, ввод ОС, следующий безопасный шаг.
 - [x] GitHub Actions для CI и сборок.
 - [x] Integrity check, чтобы локально ignored-файлы не ломали CI.
 - [ ] Проверить артефакты GitHub Actions на Windows, macOS и Linux.
