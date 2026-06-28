@@ -201,6 +201,41 @@ def plot_telemetry(log_dir: str, out_path: str) -> None:
     print(f"[analysis] телеметрия FPS → {out_path}")
 
 
+# --------------------------------------------------------- SUS / NASA-TLX
+
+def plot_usability(log_dir: str, out_path: str) -> Optional[dict]:
+    """Plot SUS and NASA-TLX means by study condition."""
+    from .usability import summarize_usability_rows
+
+    rows = []
+    for path in glob.glob(os.path.join(log_dir, "usability*.csv")):
+        with open(path, newline="", encoding="utf-8") as f:
+            rows.extend(csv.DictReader(f))
+    summary = summarize_usability_rows(rows)
+    if not summary:
+        print("[analysis] Нет usability*.csv — пропуск SUS/NASA-TLX")
+        return None
+
+    conditions = sorted(summary)
+    sus = [summary[c]["sus_mean"] for c in conditions]
+    tlx = [summary[c]["nasa_tlx_mean"] for c in conditions]
+    x = np.arange(len(conditions))
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.bar(x - 0.18, sus, 0.36, label="SUS", color="#4c72b0")
+    ax.bar(x + 0.18, tlx, 0.36, label="NASA-TLX", color="#dd8452")
+    ax.set_xticks(x); ax.set_xticklabels(conditions, rotation=20, ha="right")
+    ax.set_ylabel("Баллы, 0..100")
+    ax.set_title("Пользовательская оценка удобства")
+    ax.set_ylim(0, 100)
+    ax.legend(loc="best")
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    _ensure_dir(out_path); fig.savefig(out_path, dpi=150); plt.close(fig)
+    print(f"[analysis] SUS/NASA-TLX → {out_path}")
+    return summary
+
+
 # --------------------------------------------------------- сводный отчёт
 
 def generate_report(cfg: AppConfig, out_dir: str = None) -> None:
@@ -221,6 +256,7 @@ def generate_report(cfg: AppConfig, out_dir: str = None) -> None:
                        os.path.join(out_dir, "feature_space_pca.png"))
     plot_fitts_regression(cfg.evaluation.log_dir, os.path.join(out_dir, "fitts_regression.png"))
     plot_telemetry(cfg.telemetry.log_dir, os.path.join(out_dir, "telemetry_fps.png"))
+    plot_usability(cfg.evaluation.log_dir, os.path.join(out_dir, "usability.png"))
     print("=== Готово ===")
 
 
