@@ -40,6 +40,18 @@ def _bundled_model_path() -> str:
     return os.path.join(_PROJECT_DIR, "hand_landmarker.task")
 
 
+def _bundled_face_model_path() -> str:
+    """Путь к модели face_landmarker.task: из бандла (_MEIPASS) или из проекта.
+
+    Модель опциональна (нужна только для gaze-режима), поэтому отсутствие файла
+    не является ошибкой — оценщик взгляда просто не активируется."""
+    if _FROZEN and hasattr(sys, "_MEIPASS"):
+        p = os.path.join(sys._MEIPASS, "face_landmarker.task")
+        if os.path.exists(p):
+            return p
+    return os.path.join(_PROJECT_DIR, "face_landmarker.task")
+
+
 # Каталоги данных (профили, датасеты жестов, логи, скриншоты, записи).
 DATA_DIR = os.path.join(_user_base_dir(), "data")
 SCREENSHOTS_DIR = os.path.join(_user_base_dir(), "screenshots") if _FROZEN \
@@ -48,6 +60,7 @@ RECORDINGS_DIR = os.path.join(_user_base_dir(), "recordings") if _FROZEN \
     else os.path.join(_PROJECT_DIR, "recordings")
 DEFAULT_CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 DEFAULT_MODEL_PATH = _bundled_model_path()
+DEFAULT_FACE_MODEL_PATH = _bundled_face_model_path()
 DEFAULT_ML_MODEL_PATH = os.path.join(DATA_DIR, "gesture_model.npz")
 DEFAULT_ML_DATASET_PATH = os.path.join(DATA_DIR, "gesture_dataset.npz")
 DEFAULT_TEMPORAL_SWIPE_MODEL_PATH = os.path.join(DATA_DIR, "swipe_temporal_model.npz")
@@ -202,6 +215,29 @@ class InputConfig:
 
 
 @dataclass
+class GazeConfig:
+    """Параметры оценщика взгляда (MediaPipe Face Landmarker, iris).
+
+    Оценщик опционален и по умолчанию выключен (см. FusionConfig.gaze_enabled).
+    Калибровка хранится как аффинное отображение сырого вектора глаз → экран:
+    cal_ax/cal_bx задают x = ax*raw_x + bx, аналогично по y. Значения по
+    умолчанию близки к тождественному преобразованию, поэтому без калибровки
+    оценка работает, хоть и грубо."""
+
+    model_path: str = DEFAULT_FACE_MODEL_PATH
+    delegate: str = "CPU"             # "CPU" | "GPU"
+    running_mode: str = "video"       # как у hand_tracker — трекинг между кадрами
+    min_face_confidence: float = 0.4
+    # EMA-сглаживание сырой оценки взгляда (взгляд шумнее руки → сильнее гасим).
+    smoothing_alpha: float = 0.35
+    # Аффинная калибровка raw → экран [0..1] (по умолчанию ≈ тождество).
+    cal_ax: float = 1.0
+    cal_bx: float = 0.0
+    cal_ay: float = 1.0
+    cal_by: float = 0.0
+
+
+@dataclass
 class FusionConfig:
     """Слияние модальностей.
 
@@ -214,13 +250,16 @@ class FusionConfig:
     # Окно (сек), в течение которого голос может уточнить жест и наоборот.
     fusion_window: float = 1.5
     voice_priority: float = 0.6       # вес голоса при конфликте [0..1]
-    # Поддержка модальности взгляда. По умолчанию выключена: без eye-tracker
-    # поведение полностью совпадает с hand-only режимом.
+    # --- Взгляд (gaze) как дополнительная модальность наведения ---
+    # По умолчанию ВЫКЛ: фича ассистивная и опциональная, без модели не работает.
     gaze_enabled: bool = False
-    gaze_mode: str = "assist"         # "assist" | "cursor"
-    gaze_min_confidence: float = 0.65
-    gaze_weight: float = 0.70         # вес взгляда при assist-смешивании
-    gaze_max_age: float = 0.25        # сек: старый взгляд игнорируется
+    # "assist" — взгляд лишь грубо подсказывает зону, рука всегда уточняет/перебивает;
+    # "cursor" — взгляд ведёт курсор сам, когда руки нет в кадре.
+    gaze_mode: str = "assist"
+    gaze_min_confidence: float = 0.5  # ниже — оценка взгляда игнорируется
+    gaze_weight: float = 0.5          # вес взгляда в смеси с рукой [0..1] (assist)
+    gaze_max_age: float = 0.3         # сек: устаревшая оценка взгляда не применяется
+    gaze: GazeConfig = field(default_factory=GazeConfig)
 
 
 @dataclass
@@ -338,6 +377,7 @@ def _from_dict(cls, data: Dict[str, Any]):
 def _repair_runtime_paths(cfg: AppConfig) -> AppConfig:
     """Fix paths that become stale after moving the project or unpacking a bundle."""
     cfg.tracking.model_path = _repair_file_path(cfg.tracking.model_path, DEFAULT_MODEL_PATH)
+    cfg.fusion.gaze.model_path = _repair_file_path(cfg.fusion.gaze.model_path, DEFAULT_FACE_MODEL_PATH)
     cfg.gestures.ml_model_path = _repair_file_path(cfg.gestures.ml_model_path, DEFAULT_ML_MODEL_PATH)
     cfg.gestures.ml_dataset_path = _repair_file_path(cfg.gestures.ml_dataset_path, DEFAULT_ML_DATASET_PATH)
     cfg.gestures.swipe_model_path = _repair_file_path(
