@@ -1748,5 +1748,60 @@ class TestGazeConfig(unittest.TestCase):
         self.assertEqual(loaded.fusion.gaze.model_path, DEFAULT_FACE_MODEL_PATH)
 
 
+class TestSwipeTraining(unittest.TestCase):
+    """Round-trip обучения временной модели свайпов: train → export .npz → load
+    рантаймом → предсказание. Доказывает совпадение формата экспорта и инференса.
+
+    Всё на чистом numpy (без mediapipe/камеры) — тест детерминирован и не виснет."""
+
+    def _train_and_load(self, backend):
+        from tools import train_swipe_model as T
+        from aircontrol.gestures.dynamic import TemporalSwipeSequenceModel, SWIPE_LABELS
+
+        seed = 1234
+        classes = list(SWIPE_LABELS)
+        seq_len = 24
+        points, labels = T.generate_synthetic(n_per_class=60, seed=seed)
+        X, y = T.build_tensors(points, labels, seq_len, classes)
+        tr_idx, te_idx = T.stratified_split(y, test_frac=0.25, seed=seed)
+        Xtr, ytr = X[tr_idx], y[tr_idx]
+        pts_te = [points[i] for i in te_idx]
+        lab_te = [labels[i] for i in te_idx]
+
+        if backend == "tcn":
+            weights = T.train_tcn(Xtr, ytr, len(classes), out_ch=12, kernel=3,
+                                  epochs=60, lr=0.01, seed=seed)
+        else:
+            weights = T.train_lstm_numpy(Xtr, ytr, len(classes), hidden=16,
+                                         epochs=80, lr=0.02, seed=seed)
+
+        tmp = tempfile.mkdtemp()
+        out = os.path.join(tmp, "swipe_model.npz")
+        T.export_npz(out, backend, classes, seq_len, weights)
+        model = TemporalSwipeSequenceModel.load(out, backend)
+        self.assertIsNotNone(model, "экспортированную модель не загрузил рантайм")
+        return model, pts_te, lab_te
+
+    def test_tcn_roundtrip_accuracy(self):
+        model, pts_te, lab_te = self._train_and_load("tcn")
+        correct = sum(model.predict(p)[0] == t for p, t in zip(pts_te, lab_te))
+        acc = correct / len(lab_te)
+        self.assertGreaterEqual(acc, 0.8, f"TCN accuracy={acc:.3f} ниже 0.8")
+
+    def test_tcn_classifies_clear_right_swipe(self):
+        model, _, _ = self._train_and_load("tcn")
+        # Явный свайп вправо: горизонтальная траектория слева направо.
+        pts = [(0.40 + 0.04 * i, 0.50) for i in range(8)]
+        label, conf = model.predict(pts)
+        self.assertEqual(label, "swipe_right", f"получено {label} ({conf:.2f})")
+
+    def test_export_format_fields_present(self):
+        model, _, _ = self._train_and_load("tcn")
+        # in_ch обязан быть 4 (контракт признаков [x, y, dx, dy]).
+        self.assertEqual(model.arrays["conv_w"].shape[1], 4)
+        self.assertTrue(set(("swipe_left", "swipe_right", "swipe_up",
+                             "swipe_down")).issubset(set(model.labels)))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
