@@ -14,11 +14,22 @@
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass, field, replace
+from typing import List, Optional, Tuple
 
 from ..config import FusionConfig
 from ..gestures.engine import FrameGestures
+
+
+@dataclass
+class GazeResult:
+    """Нормализованная точка взгляда от внешнего eye-tracker backend."""
+
+    point_norm: Optional[Tuple[float, float]] = None
+    confidence: float = 0.0
+    timestamp: Optional[float] = None
+    source: str = "unknown"
+    valid: bool = True
 
 
 @dataclass
@@ -27,6 +38,9 @@ class FusionStatus:
     listening: bool = False
     dragging: bool = False
     frozen: bool = False
+    gaze_active: bool = False
+    gaze_source: str = ""
+    cursor_source: str = "hand"
     voice_status: str = ""
     fired_actions: List[str] = field(default_factory=list)
 
@@ -40,10 +54,19 @@ class MultimodalCoordinator:
         self.voice = voice_recognizer
         self._scroll_accum = 0.0
 
-    def process(self, fg: FrameGestures, timestamp: Optional[float] = None) -> FusionStatus:
+    def process(self, fg: FrameGestures, timestamp: Optional[float] = None,
+                gaze: Optional[GazeResult] = None) -> FusionStatus:
         if timestamp is None:
             timestamp = time.time()
-        status = FusionStatus(pose=fg.pose, frozen=fg.frozen, dragging=fg.is_dragging)
+        fg, cursor_source, gaze_active = self._apply_gaze(fg, gaze, timestamp)
+        status = FusionStatus(
+            pose=fg.pose,
+            frozen=fg.frozen,
+            dragging=fg.is_dragging,
+            gaze_active=gaze_active,
+            gaze_source=gaze.source if gaze_active and gaze else "",
+            cursor_source=cursor_source,
+        )
 
         listening = self.voice.is_listening if self.voice else False
 
@@ -86,3 +109,38 @@ class MultimodalCoordinator:
     def shutdown(self) -> None:
         """Отпускаем зажатые кнопки при выходе."""
         self.act.release_all()
+
+    # --------------------------------------------------------------- gaze
+
+    def _apply_gaze(self, fg: FrameGestures, gaze: Optional[GazeResult],
+                    timestamp: float) -> tuple[FrameGestures, str, bool]:
+        if not self._usable_gaze(gaze, timestamp):
+            return fg, "hand", False
+
+        gaze_point = _clamp_point(gaze.point_norm)
+        if self.cfg.gaze_mode == "cursor" or fg.cursor_norm is None:
+            return replace(fg, hand_detected=True, cursor_norm=gaze_point), "gaze", True
+
+        hand_x, hand_y = fg.cursor_norm
+        weight = max(0.0, min(1.0, self.cfg.gaze_weight))
+        mixed = (
+            hand_x * (1.0 - weight) + gaze_point[0] * weight,
+            hand_y * (1.0 - weight) + gaze_point[1] * weight,
+        )
+        return replace(fg, cursor_norm=mixed), "hand+gaze", True
+
+    def _usable_gaze(self, gaze: Optional[GazeResult], timestamp: float) -> bool:
+        if not self.cfg.gaze_enabled or gaze is None or not gaze.valid:
+            return False
+        if gaze.point_norm is None or gaze.confidence < self.cfg.gaze_min_confidence:
+            return False
+        if gaze.timestamp is not None and timestamp - gaze.timestamp > self.cfg.gaze_max_age:
+            return False
+        return True
+
+
+def _clamp_point(point: Tuple[float, float]) -> Tuple[float, float]:
+    return (
+        max(0.0, min(1.0, float(point[0]))),
+        max(0.0, min(1.0, float(point[1]))),
+    )

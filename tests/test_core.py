@@ -18,6 +18,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aircontrol.config import (
+    ASSISTIVE_PRESETS,
     AppConfig,
     DEFAULT_LOG_DIR,
     DEFAULT_ML_DATASET_PATH,
@@ -61,6 +62,8 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(loaded.filter.type, "one_euro")  # дефолт
         self.assertEqual(loaded.camera.backend, "auto")
         self.assertFalse(loaded.input.dry_run)
+        self.assertEqual(loaded.gestures.swipe_backend, "heuristic")
+        self.assertFalse(loaded.fusion.gaze_enabled)
 
     def test_relocatable_model_path(self):
         with tempfile.TemporaryDirectory() as d:
@@ -92,6 +95,7 @@ class TestConfig(unittest.TestCase):
     def test_assistive_profile(self):
         cfg = apply_assistive_profile(AppConfig())
         self.assertEqual(cfg.profile_name, "assistive")
+        self.assertEqual(cfg.assistive_preset, "balanced")
         self.assertEqual(cfg.start_mode, "control")
         self.assertEqual((cfg.camera.width, cfg.camera.height), (480, 360))
         self.assertTrue(cfg.cursor.dwell_enabled)
@@ -103,12 +107,28 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.performance.detect_downscale, 0.5)
         self.assertEqual(cfg.performance.detect_max_fps, 24)
 
+    def test_assistive_presets_tune_for_motor_needs(self):
+        steady = apply_assistive_profile(AppConfig(), "steady")
+        self.assertEqual(steady.assistive_preset, "steady")
+        self.assertEqual(steady.cursor.dwell_profile, "steady")
+        self.assertLess(steady.cursor.worker_easing, ASSISTIVE_PRESETS["balanced"]["worker_easing"])
+        self.assertLess(steady.filter.one_euro_beta, ASSISTIVE_PRESETS["balanced"]["filter_beta"])
+
+        low_motion = apply_assistive_profile(AppConfig(), "low_motion")
+        self.assertEqual(low_motion.assistive_preset, "low_motion")
+        self.assertLess(low_motion.cursor.active_region, steady.cursor.active_region)
+        self.assertGreater(low_motion.cursor.sensitivity, steady.cursor.sensitivity)
+
+        fallback = apply_assistive_profile(AppConfig(), "missing")
+        self.assertEqual(fallback.assistive_preset, "balanced")
+
     def test_dwell_profiles_apply_named_values(self):
         cfg = apply_dwell_profile(AppConfig(), "steady")
         self.assertTrue(cfg.cursor.dwell_enabled)
         self.assertEqual(cfg.cursor.dwell_profile, "steady")
         self.assertAlmostEqual(cfg.cursor.dwell_time, 1.70)
         self.assertEqual(cfg.cursor.dwell_radius, 68)
+        self.assertAlmostEqual(cfg.cursor.dwell_cooldown, 1.20)
 
     def test_dwell_profile_fallback_and_cycle(self):
         cfg = apply_dwell_profile(AppConfig(), "missing")
@@ -438,6 +458,86 @@ class TestCursorBackend(unittest.TestCase):
         self.assertEqual(first.position, (1, 1))
         self.assertNotEqual(second.position, (10, 10))
 
+    def test_dwell_cooldown_prevents_repeat_clicks(self):
+        cfg = AppConfig()
+        apply_dwell_profile(cfg, "fast")
+        cursor = CursorController(cfg.cursor, cfg.filter, self.DummyMouse((0, 0)), (100, 100))
+        fg = FrameGestures(hand_detected=True, cursor_norm=(0.5, 0.5))
+
+        self.assertIsNone(cursor.update(fg, 0.0))
+        self.assertEqual(cursor.update(fg, cfg.cursor.dwell_time), "left_click")
+
+        shifted = FrameGestures(hand_detected=True, cursor_norm=(0.6, 0.5))
+        self.assertIsNone(cursor.update(shifted, cfg.cursor.dwell_time + 0.1))
+        self.assertEqual(cursor.dwell_progress, 0.0)
+
+        after_cooldown = cfg.cursor.dwell_time + cfg.cursor.dwell_cooldown + 0.1
+        self.assertIsNone(cursor.update(shifted, after_cooldown))
+        self.assertIsNone(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time - 0.01))
+        self.assertEqual(cursor.update(shifted, after_cooldown + cfg.cursor.dwell_time), "left_click")
+
+
+class TestFusionCoordinator(unittest.TestCase):
+    class Cursor:
+        def __init__(self):
+            self.last = None
+
+        def update(self, fg, _timestamp):
+            self.last = fg
+            return None
+
+    class Actions:
+        def __init__(self):
+            self.executed = []
+
+        def execute(self, action):
+            self.executed.append(action)
+
+        def scroll(self, steps):
+            self.executed.append(f"scroll:{steps}")
+
+        def release_all(self):
+            self.executed.append("release_all")
+
+    def test_gaze_assist_blends_hand_cursor(self):
+        from aircontrol.fusion import GazeResult, MultimodalCoordinator
+
+        cfg = AppConfig().fusion
+        cfg.gaze_enabled = True
+        cfg.gaze_mode = "assist"
+        cfg.gaze_weight = 0.5
+        cursor = self.Cursor()
+        coordinator = MultimodalCoordinator(cfg, self.Actions(), cursor, None)
+        status = coordinator.process(
+            FrameGestures(hand_detected=True, cursor_norm=(0.2, 0.2), pose="point"),
+            timestamp=10.0,
+            gaze=GazeResult(point_norm=(0.8, 0.6), confidence=0.9, timestamp=10.0, source="test"),
+        )
+
+        self.assertTrue(status.gaze_active)
+        self.assertEqual(status.cursor_source, "hand+gaze")
+        self.assertAlmostEqual(cursor.last.cursor_norm[0], 0.5)
+        self.assertAlmostEqual(cursor.last.cursor_norm[1], 0.4)
+
+    def test_gaze_cursor_mode_can_drive_without_hand(self):
+        from aircontrol.fusion import GazeResult, MultimodalCoordinator
+
+        cfg = AppConfig().fusion
+        cfg.gaze_enabled = True
+        cfg.gaze_mode = "cursor"
+        cursor = self.Cursor()
+        coordinator = MultimodalCoordinator(cfg, self.Actions(), cursor, None)
+        status = coordinator.process(
+            FrameGestures(hand_detected=False, cursor_norm=None, pose="none"),
+            timestamp=10.0,
+            gaze=GazeResult(point_norm=(1.2, -0.2), confidence=0.9, timestamp=10.0),
+        )
+
+        self.assertTrue(status.gaze_active)
+        self.assertEqual(status.cursor_source, "gaze")
+        self.assertTrue(cursor.last.hand_detected)
+        self.assertEqual(cursor.last.cursor_norm, (1.0, 0.0))
+
 
 class TestLauncherConfig(unittest.TestCase):
     def test_preview_forces_view_and_dry_input(self):
@@ -455,6 +555,18 @@ class TestLauncherConfig(unittest.TestCase):
         self.assertEqual(cfg.profile_name, "assistive")
         self.assertEqual(cfg.start_mode, "control")
         self.assertFalse(cfg.input.dry_run)
+
+    def test_launcher_applies_assistive_preset(self):
+        from aircontrol.launcher import prepare_launch_config
+        cfg = prepare_launch_config(
+            AppConfig(),
+            assistive=True,
+            assistive_preset="low_motion",
+            dry_input=True,
+        )
+        self.assertEqual(cfg.assistive_preset, "low_motion")
+        self.assertTrue(cfg.input.dry_run)
+        self.assertLess(cfg.cursor.active_region, 0.4)
 
     def test_control_preflight_required_only_for_real_control(self):
         from aircontrol.launcher import _requires_control_preflight
@@ -677,6 +789,32 @@ class TestVoiceAvailability(unittest.TestCase):
         with patch.object(vr, "SPEECH_AVAILABLE", True), \
              patch.object(vr, "MICROPHONE_BACKEND_AVAILABLE", False):
             self.assertEqual(vr._initial_status(AppConfig().voice), "microphone backend unavailable")
+
+    def test_vosk_status_requires_local_model(self):
+        from aircontrol.voice import recognizer as vr
+        cfg = AppConfig().voice
+        cfg.engine = "vosk"
+        cfg.vosk_model_path = "/missing/vosk-model"
+        with patch.object(vr, "SPEECH_AVAILABLE", True), \
+             patch.object(vr, "MICROPHONE_BACKEND_AVAILABLE", True), \
+             patch.object(vr.importlib.util, "find_spec", return_value=object()), \
+             patch.object(vr.os.path, "isdir", return_value=False):
+            self.assertEqual(vr._initial_status(cfg), "vosk model unavailable")
+
+    def test_vosk_engine_does_not_fallback_to_google_without_model(self):
+        from aircontrol.voice.recognizer import VoiceRecognizer
+
+        class Recognizer:
+            def recognize_google(self, *_args, **_kwargs):
+                raise AssertionError("google fallback should not be used for Vosk")
+
+        cfg = AppConfig().voice
+        cfg.engine = "vosk"
+        voice = VoiceRecognizer.__new__(VoiceRecognizer)
+        voice.cfg = cfg
+        voice._vosk_model = None
+        voice._recognizer = Recognizer()
+        self.assertIsNone(voice._recognize(object()))
 
     def test_voice_recognizer_keeps_recognize_method(self):
         from aircontrol.voice.recognizer import VoiceRecognizer
@@ -979,6 +1117,42 @@ class TestFitts(unittest.TestCase):
         self.assertLessEqual(s["error_rate_mean"], 1.0)
 
 
+class TestUsabilityStudy(unittest.TestCase):
+    def test_sus_scoring_bounds(self):
+        from aircontrol.evaluation.usability import score_sus
+
+        self.assertEqual(score_sus([5, 1, 5, 1, 5, 1, 5, 1, 5, 1]), 100.0)
+        self.assertEqual(score_sus([1, 5, 1, 5, 1, 5, 1, 5, 1, 5]), 0.0)
+
+    def test_nasa_tlx_and_csv_append(self):
+        from aircontrol.evaluation.usability import (
+            NASA_TLX_DIMENSIONS,
+            append_usability_result,
+            score_nasa_tlx,
+        )
+
+        ratings = {key: 50.0 for key in NASA_TLX_DIMENSIONS}
+        raw, weighted = score_nasa_tlx(ratings, {key: 1.0 for key in NASA_TLX_DIMENSIONS})
+        self.assertEqual(raw, 50.0)
+        self.assertEqual(weighted, 50.0)
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "usability.csv")
+            result = append_usability_result(
+                path,
+                participant_id="P01",
+                condition="steady",
+                sus_responses=[4, 2, 4, 2, 4, 2, 4, 2, 4, 2],
+                tlx_ratings=ratings,
+            )
+            self.assertTrue(os.path.exists(path))
+            self.assertGreater(result.sus_score, 0)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("participant_id", text)
+            self.assertIn("steady", text)
+
+
 class TestML(unittest.TestCase):
     def test_train_predict_synthetic(self):
         ds = generate_synthetic_dataset(per_pose=80, seed=5)
@@ -1018,6 +1192,39 @@ class TestDynamic(unittest.TestCase):
         self.assertIsNone(self._swipe(0.05, 0))           # слишком мелкое
         self.assertIsNone(self._swipe(0.3, 0, steps=20, dt=0.05))  # слишком медленное
 
+    def test_template_backend_recognizes_temporal_swipe(self):
+        from aircontrol.gestures.dynamic import DynamicGestureRecognizer
+
+        r = DynamicGestureRecognizer(
+            min_dist=0.1,
+            max_time=1.0,
+            cooldown=0.5,
+            backend="template",
+            min_confidence=0.6,
+            sequence_length=8,
+        )
+        result = None
+        for idx, x in enumerate([0.50, 0.55, 0.64, 0.78]):
+            result = r.update(x, 0.5, idx * 0.1, active=True) or result
+        self.assertEqual(result, "swipe_right")
+        self.assertIsNone(r.update(0.95, 0.5, 0.31, active=True))
+
+    def test_lstm_backend_without_model_falls_back_to_template(self):
+        from aircontrol.gestures.dynamic import DynamicGestureRecognizer
+
+        r = DynamicGestureRecognizer(
+            min_dist=0.1,
+            max_time=1.0,
+            cooldown=0.0,
+            backend="lstm",
+            model_path="/missing/swipe_model.npz",
+            min_confidence=0.6,
+        )
+        result = None
+        for idx, y in enumerate([0.50, 0.44, 0.36, 0.20]):
+            result = r.update(0.5, y, idx * 0.1, active=True) or result
+        self.assertEqual(result, "swipe_up")
+
 
 class TestBimanual(unittest.TestCase):
     def _hand(self, cx):
@@ -1055,6 +1262,8 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIn("AirControl doctor", report)
         self.assertIn("System resources", report)
         self.assertIn("CPU cores", report)
+        self.assertIn("Voice engine", report)
+        self.assertIn("Vosk package", report)
         self.assertIn("SpeechRecognition FLAC converter", report)
         self.assertIn("Runtime config", report)
         self.assertIn("Configured dry-input", report)
@@ -1156,9 +1365,11 @@ class TestDiagnostics(unittest.TestCase):
                                           "mode": "control",
                                           "start_mode": "control",
                                           "profile": "assistive",
+                                          "assistive_preset": "steady",
                                           "safe_input": True,
                                           "dwell_enabled": True,
                                           "dwell_profile": "steady",
+                                          "dwell_cooldown": 1.2,
                                           "dwell_only_mode": True,
                                           "input_status": "DRY INPUT",
                                           "hand_detected": False,
@@ -1195,15 +1406,19 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn('"path": "runtime-summary.txt"', manifest)
             self.assertIn('"fps": 12.5', runtime)
             self.assertIn('"profile": "assistive"', runtime)
+            self.assertIn('"assistive_preset": "steady"', runtime)
             self.assertIn('"dwell_enabled": true', runtime)
             self.assertIn('"dwell_profile": "steady"', runtime)
+            self.assertIn('"dwell_cooldown": 1.2', runtime)
             self.assertIn('"dwell_only_mode": true', runtime)
             self.assertIn('"summary":', runtime)
             self.assertIn("Profile: assistive", summary)
+            self.assertIn("Assistive preset: steady", summary)
             self.assertIn("Control path: OFF (Safe input)", summary)
             self.assertIn("Safe input: ON", summary)
             self.assertIn("Dwell-click: ON", summary)
             self.assertIn("Dwell profile: steady", summary)
+            self.assertIn("Dwell cooldown: 1.2 s", summary)
             self.assertIn("One-gesture mode: ON", summary)
             self.assertIn("Last action: left_click (1.25s ago)", summary)
             self.assertIn("Safe input is ON", summary)

@@ -300,12 +300,18 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
     """Build a concise support-facing summary from live app status."""
     mode = str(runtime_info.get("mode", "unknown"))
     profile = str(runtime_info.get("profile", "unknown"))
+    assistive_preset = str(runtime_info.get("assistive_preset", "balanced") or "balanced")
     start_mode = runtime_info.get("start_mode")
     input_status = str(runtime_info.get("input_status", "unknown"))
     safe_input = _bool_or_none(runtime_info.get("safe_input"))
     dwell_enabled = _bool_or_none(runtime_info.get("dwell_enabled"))
     dwell_profile = str(runtime_info.get("dwell_profile", "unknown") or "unknown")
+    dwell_cooldown = _float_or_none(runtime_info.get("dwell_cooldown"))
     dwell_only_mode = _bool_or_none(runtime_info.get("dwell_only_mode"))
+    swipe_backend = str(runtime_info.get("swipe_backend", "heuristic") or "heuristic")
+    voice_engine = str(runtime_info.get("voice_engine", "google") or "google")
+    gaze_enabled = _bool_or_none(runtime_info.get("gaze_enabled"))
+    gaze_mode = str(runtime_info.get("gaze_mode", "assist") or "assist")
     last_action = str(runtime_info.get("last_action", "") or "")
     seconds_since_action = runtime_info.get("seconds_since_action")
     last_input_error = str(runtime_info.get("last_input_error", "") or "")
@@ -323,12 +329,17 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
     lines = [
         "=== AirControl runtime summary ===",
         f"Profile: {profile}",
+        f"Assistive preset: {assistive_preset}",
         f"Mode: {mode}",
         f"Control path: {_runtime_control_path(mode, input_status, safe_input)}",
         f"Safe input: {_on_off_unknown(safe_input)}",
         f"Dwell-click: {_on_off_unknown(dwell_enabled)}",
         f"Dwell profile: {dwell_profile}",
+        f"Dwell cooldown: {dwell_cooldown if dwell_cooldown is not None else 'unknown'} s",
         f"One-gesture mode: {_on_off_unknown(dwell_only_mode)}",
+        f"Swipe backend: {swipe_backend}",
+        f"Voice engine: {voice_engine}",
+        f"Gaze fusion: {_on_off_unknown(gaze_enabled)} ({gaze_mode})",
         f"Input: {input_status}",
         f"Hand detected: {hand_detected}",
         f"FPS: {fps if fps is not None else 'unknown'}",
@@ -564,13 +575,19 @@ def native_helper_report() -> dict | None:
     helper = _native_helper_path()
     if helper is None:
         return None
+    # The helper is a tiny Go binary, but the first launch of a freshly built,
+    # unsigned executable can be delayed on Windows by Defender's real-time scan,
+    # and CI runners are CPU-constrained (2 cores). A 2s timeout was too tight and
+    # made the release smoke-test flaky. Use a generous timeout and suppress the
+    # console window so the probe stays reliable and invisible to end users.
     try:
         result = subprocess.run(
             [str(helper), "doctor", "--json"],
             text=True,
             capture_output=True,
-            timeout=2.0,
+            timeout=15.0,
             check=True,
+            creationflags=_subprocess_no_window_flags(),
         )
         data = json.loads(result.stdout)
     except Exception:
@@ -586,15 +603,26 @@ def _public_native_helper_report(report: dict) -> dict:
     return {key: value for key, value in report.items() if not str(key).startswith("_")}
 
 
+def _subprocess_no_window_flags() -> int:
+    """Suppress the console window when launching helpers from a GUI build (Windows)."""
+    if sys.platform.startswith("win"):
+        return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return 0
+
+
 def _native_helper_path() -> Path | None:
     exe_name = "aircontrol-helper.exe" if sys.platform.startswith("win") else "aircontrol-helper"
     candidates: list[Path] = []
+    search_roots: list[Path] = []
     if getattr(sys, "frozen", False):
         executable_dir = Path(sys.executable).resolve().parent
         candidates.append(executable_dir / exe_name)
+        search_roots.append(executable_dir)
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
-            candidates.append(Path(meipass).resolve() / exe_name)
+            meipass_dir = Path(meipass).resolve()
+            candidates.append(meipass_dir / exe_name)
+            search_roots.append(meipass_dir)
 
     project_dir = Path(__file__).resolve().parents[1]
     candidates.extend([
@@ -605,6 +633,22 @@ def _native_helper_path() -> Path | None:
     for candidate in candidates:
         if candidate.exists() and os.access(candidate, os.X_OK):
             return candidate
+
+    # Fallback: PyInstaller can place bundled binaries in version/platform-specific
+    # subdirectories. Mirror the release smoke-test's recursive discovery instead of
+    # assuming a fixed layout, so the frozen doctor never reports a bundled helper
+    # as missing.
+    seen: set[Path] = set()
+    for root in search_roots:
+        if root in seen or not root.is_dir():
+            continue
+        seen.add(root)
+        try:
+            for found in root.rglob(exe_name):
+                if found.is_file() and os.access(found, os.X_OK):
+                    return found
+        except OSError:
+            continue
 
     found = shutil.which(exe_name)
     return Path(found) if found else None
@@ -620,12 +664,18 @@ def _append_tk(lines: List[str], recommendations: List[str]) -> None:
 
 
 def _append_voice(lines: List[str], recommendations: List[str]) -> None:
+    cfg = AppConfig.load()
     sr_ok = importlib.util.find_spec("speech_recognition") is not None
     pa_ok = importlib.util.find_spec("pyaudio") is not None
+    vosk_ok = importlib.util.find_spec("vosk") is not None
     lines.append(f"SpeechRecognition: {'OK' if sr_ok else 'missing'}")
     lines.append(f"PyAudio microphone backend: {'OK' if pa_ok else 'missing'}")
+    lines.append(f"Voice engine: {getattr(cfg.voice, 'engine', 'google')}")
     flac_path = _speech_flac_converter_path() if sr_ok else None
     lines.append(f"SpeechRecognition FLAC converter: {'OK (' + flac_path + ')' if flac_path else 'missing'}")
+    vosk_model = getattr(cfg.voice, "vosk_model_path", "")
+    lines.append(f"Vosk package: {'OK' if vosk_ok else 'missing'}")
+    lines.append(f"Vosk model: {'OK' if os.path.isdir(vosk_model) else 'missing'} ({vosk_model})")
     if sr_ok and not pa_ok:
         recommendations.append(
             "Голосовые команды отключены: PyAudio не установлен. Это не мешает "
@@ -638,6 +688,17 @@ def _append_voice(lines: List[str], recommendations: List[str]) -> None:
             "FLAC-конвертер. Жесты и dwell-click работают без него; для голоса "
             "установите системный flac или используйте офлайн Vosk."
         )
+    if getattr(cfg.voice, "engine", "google") == "vosk":
+        if not vosk_ok:
+            recommendations.append(
+                "Офлайн-голос Vosk выбран, но пакет vosk не установлен. "
+                "Установите requirements-optional.txt или переключите voice.engine на google."
+            )
+        elif not os.path.isdir(vosk_model):
+            recommendations.append(
+                "Офлайн-голос Vosk выбран, но локальная модель не найдена. "
+                f"Распакуйте модель Vosk в {vosk_model}."
+            )
 
 
 def _speech_flac_converter_path() -> str | None:
@@ -660,6 +721,7 @@ def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:
     lines.append("")
     lines.append("Runtime config:")
     lines.append(f"profile: {cfg.profile_name}")
+    lines.append(f"assistive_preset: {getattr(cfg, 'assistive_preset', 'balanced')}")
     lines.append(f"start_mode: {cfg.start_mode}")
     lines.append(f"camera: {cfg.camera.width}x{cfg.camera.height} @ {cfg.camera.target_fps} fps")
     lines.append(f"camera_backend: {cfg.camera.backend}")
@@ -669,9 +731,16 @@ def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:
     lines.append(f"dwell_profile: {getattr(cfg.cursor, 'dwell_profile', 'custom')}")
     lines.append(f"dwell_time: {cfg.cursor.dwell_time}")
     lines.append(f"dwell_radius: {cfg.cursor.dwell_radius}")
+    lines.append(f"dwell_cooldown: {cfg.cursor.dwell_cooldown}")
     lines.append(f"dwell_only_mode: {cfg.gestures.dwell_only_mode}")
     lines.append(f"dynamic_enabled: {cfg.gestures.dynamic_enabled}")
+    lines.append(f"swipe_backend: {cfg.gestures.swipe_backend}")
+    lines.append(f"swipe_model_path: {cfg.gestures.swipe_model_path}")
+    lines.append(f"swipe_min_confidence: {cfg.gestures.swipe_min_confidence}")
     lines.append(f"bimanual_enabled: {cfg.gestures.bimanual_enabled}")
+    lines.append(f"voice_engine: {cfg.voice.engine}")
+    lines.append(f"gaze_enabled: {cfg.fusion.gaze_enabled}")
+    lines.append(f"gaze_mode: {cfg.fusion.gaze_mode}")
 
 
 def _append_input(lines: List[str], recommendations: List[str],

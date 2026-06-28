@@ -84,7 +84,10 @@ class GestureEngine:
         # Динамические жесты (свайпы открытой ладонью).
         self.dynamic = DynamicGestureRecognizer(
             min_dist=cfg.swipe_min_dist, max_time=cfg.swipe_max_time,
-            cooldown=cfg.swipe_cooldown) if cfg.dynamic_enabled else None
+            cooldown=cfg.swipe_cooldown, backend=cfg.swipe_backend,
+            model_path=cfg.swipe_model_path,
+            min_confidence=cfg.swipe_min_confidence,
+            sequence_length=cfg.swipe_sequence_length) if cfg.dynamic_enabled else None
 
         # Темпоральная стабилизация позы.
         self._pose_hist: deque = deque(maxlen=max(1, cfg.pose_smoothing_window))

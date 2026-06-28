@@ -19,12 +19,13 @@ def prepare_launch_config(
     cfg: AppConfig,
     *,
     assistive: bool = False,
+    assistive_preset: str = "balanced",
     dry_input: bool = False,
     start_mode: str | None = None,
 ) -> AppConfig:
     """Apply launcher choices to a config object."""
     if assistive:
-        apply_assistive_profile(cfg)
+        apply_assistive_profile(cfg, assistive_preset)
     if start_mode is not None:
         cfg.start_mode = start_mode
     elif assistive:
@@ -36,8 +37,8 @@ def prepare_launch_config(
 def run_launcher() -> None:
     root = tk.Tk()
     root.title("AirControl")
-    root.geometry("620x590")
-    root.minsize(540, 520)
+    root.geometry("680x720")
+    root.minsize(560, 640)
 
     bg = "#101418"
     panel = "#182028"
@@ -62,10 +63,16 @@ def run_launcher() -> None:
     buttons = tk.Frame(container, bg=bg)
     buttons.pack(fill=tk.BOTH, expand=True, pady=(22, 0))
 
-    def launch_app(assistive: bool, dry_input: bool, start_mode: str | None = None) -> None:
+    def launch_app(
+        assistive: bool,
+        dry_input: bool,
+        start_mode: str | None = None,
+        assistive_preset: str = "balanced",
+    ) -> None:
         cfg = prepare_launch_config(
             AppConfig.load(),
             assistive=assistive,
+            assistive_preset=assistive_preset,
             dry_input=dry_input,
             start_mode=start_mode,
         )
@@ -406,7 +413,15 @@ def run_launcher() -> None:
 
     add_button("Мастер первого запуска", show_first_run_wizard, True)
     add_button("1. Безопасная тренировка (без кликов)", lambda: launch_app(True, True))
-    add_button("2. Начать ассистивное управление", lambda: launch_app(True, False))
+    add_button("2. Ассистивное управление: баланс", lambda: launch_app(True, False))
+    add_button(
+        "Ассистивное управление: тремор / дрожание",
+        lambda: launch_app(True, False, assistive_preset="steady"),
+    )
+    add_button(
+        "Ассистивное управление: мало движения рукой",
+        lambda: launch_app(True, False, assistive_preset="low_motion"),
+    )
     add_button("Калибровка под пользователя", run_calibration)
     add_button("Проверить систему", show_diagnostics)
     add_button("Сохранить отчёт диагностики", save_report)

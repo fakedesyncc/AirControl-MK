@@ -18,7 +18,7 @@ import json
 import os
 import sys
 
-from .config import AppConfig, apply_assistive_profile
+from .config import ASSISTIVE_PRESET_ORDER, AppConfig, apply_assistive_profile
 
 
 PRESETS = {
@@ -45,7 +45,10 @@ def cmd_run(args):
     from .app import AirControlApp
     cfg = AppConfig.load()
     if getattr(args, "assistive", False):
-        apply_assistive_profile(cfg)
+        apply_assistive_profile(
+            cfg,
+            getattr(args, "assistive_preset", None) or "balanced",
+        )
     if getattr(args, "preset", None):
         w, h, ds, nh = PRESETS[args.preset]
         cfg.camera.width, cfg.camera.height = w, h
@@ -54,8 +57,16 @@ def cmd_run(args):
         print(f"[run] Пресет '{args.preset}': {w}x{h}, downscale={ds}, hands={nh}")
     if args.recognizer:
         cfg.gestures.recognizer = args.recognizer
+    if getattr(args, "swipe_backend", None):
+        cfg.gestures.swipe_backend = args.swipe_backend
     if args.filter:
         cfg.filter.type = args.filter
+    if getattr(args, "voice_engine", None):
+        cfg.voice.engine = args.voice_engine
+    if getattr(args, "gaze_mode", None):
+        cfg.fusion.gaze_enabled = args.gaze_mode != "off"
+        if cfg.fusion.gaze_enabled:
+            cfg.fusion.gaze_mode = args.gaze_mode
     if args.mode:
         cfg.start_mode = args.mode
     if getattr(args, "dry_input", False):
@@ -65,9 +76,13 @@ def cmd_run(args):
 
 def cmd_assistive(args):
     args.assistive = True
+    args.assistive_preset = getattr(args, "assistive_preset", None) or "balanced"
     args.preset = getattr(args, "preset", None)
     args.recognizer = getattr(args, "recognizer", None)
+    args.swipe_backend = getattr(args, "swipe_backend", None)
     args.filter = getattr(args, "filter", None)
+    args.voice_engine = getattr(args, "voice_engine", None)
+    args.gaze_mode = getattr(args, "gaze_mode", None)
     args.mode = getattr(args, "mode", None) or "control"
     cmd_run(args)
 
@@ -194,6 +209,30 @@ def cmd_report(args):
     generate_report(AppConfig.load())
 
 
+def cmd_usability(args):
+    from .evaluation.usability import (
+        append_usability_result,
+        parse_sus_csv,
+        parse_tlx_pairs,
+    )
+    cfg = AppConfig.load()
+    output = args.output or os.path.join(cfg.evaluation.log_dir, "usability.csv")
+    weights = parse_tlx_pairs(args.tlx_weights) if args.tlx_weights else None
+    result = append_usability_result(
+        output,
+        participant_id=args.participant,
+        condition=args.condition,
+        sus_responses=parse_sus_csv(args.sus),
+        tlx_ratings=parse_tlx_pairs(args.tlx),
+        tlx_weights=weights,
+    )
+    print(f"Usability saved: {output}")
+    print(f"SUS: {result.sus_score:.2f}/100")
+    print(f"NASA-TLX raw: {result.nasa_tlx_raw:.2f}/100")
+    if result.nasa_tlx_weighted is not None:
+        print(f"NASA-TLX weighted: {result.nasa_tlx_weighted:.2f}/100")
+
+
 def cmd_calibrate(args):
     from .ui.calibration import run_calibration
     run_calibration(AppConfig.load())
@@ -222,12 +261,20 @@ def main(argv=None):
 
     p_run = sub.add_parser("run", help="запустить приложение")
     p_run.add_argument("--recognizer", choices=["heuristic", "ml"])
+    p_run.add_argument("--swipe-backend", choices=["heuristic", "template", "lstm", "tcn"],
+                       help="backend динамических свайпов")
     p_run.add_argument("--filter", choices=["none", "ema", "one_euro", "kalman"])
+    p_run.add_argument("--voice-engine", choices=["google", "vosk"],
+                       help="google или приватный офлайн Vosk")
+    p_run.add_argument("--gaze-mode", choices=["off", "assist", "cursor"],
+                       help="экспериментальное слияние взгляда: off, assist, cursor")
     p_run.add_argument("--mode", choices=["view", "control"])
     p_run.add_argument("--preset", choices=["low", "medium", "high"],
                        help="low — для слабых ПК, high — для мощных (две руки)")
     p_run.add_argument("--assistive", action="store_true",
                        help="ассистивный профиль: dwell-click, мягкий курсор, меньше случайных жестов")
+    p_run.add_argument("--assistive-preset", choices=ASSISTIVE_PRESET_ORDER, default="balanced",
+                       help="balanced, steady для тремора, low_motion для малого движения руки")
     p_run.add_argument("--dry-input", action="store_true",
                        help="безопасная тренировка: не отправлять события мыши/клавиатуры в ОС")
     p_run.set_defaults(func=cmd_run)
@@ -236,8 +283,15 @@ def main(argv=None):
     p_assistive.add_argument("--dry-input", action="store_true",
                              help="сначала тренироваться без реальных кликов/клавиш")
     p_assistive.add_argument("--preset", choices=["low", "medium", "high"], default="low")
+    p_assistive.add_argument("--assistive-preset", choices=ASSISTIVE_PRESET_ORDER,
+                             default="balanced",
+                             help="balanced, steady для тремора, low_motion для малого движения руки")
     p_assistive.add_argument("--recognizer", choices=["heuristic", "ml"], default=None)
+    p_assistive.add_argument("--swipe-backend", choices=["heuristic", "template", "lstm", "tcn"],
+                             default=None)
     p_assistive.add_argument("--filter", choices=["none", "ema", "one_euro", "kalman"], default=None)
+    p_assistive.add_argument("--voice-engine", choices=["google", "vosk"], default=None)
+    p_assistive.add_argument("--gaze-mode", choices=["off", "assist", "cursor"], default=None)
     p_assistive.add_argument("--mode", choices=["view", "control"], default="control")
     p_assistive.set_defaults(func=cmd_assistive)
 
@@ -259,6 +313,18 @@ def main(argv=None):
     sub.add_parser("bench", help="бенчмарк фильтров стабилизации").set_defaults(func=cmd_bench)
 
     sub.add_parser("report", help="сгенерировать графики для диссертации").set_defaults(func=cmd_report)
+
+    p_usability = sub.add_parser("usability", help="записать SUS и NASA-TLX для исследования")
+    p_usability.add_argument("--participant", default="P01")
+    p_usability.add_argument("--condition", default="assistive")
+    p_usability.add_argument("--sus", required=True,
+                             help="10 ответов SUS через запятую, значения 1..5")
+    p_usability.add_argument("--tlx", required=True,
+                             help="mental=40,physical=50,temporal=30,performance=20,effort=60,frustration=10")
+    p_usability.add_argument("--tlx-weights", default=None,
+                             help="опциональные веса NASA-TLX в том же формате")
+    p_usability.add_argument("-o", "--output", default=None)
+    p_usability.set_defaults(func=cmd_usability)
 
     sub.add_parser("mictest", help="диагностика голосового ввода/микрофона").set_defaults(func=cmd_mictest)
 

@@ -5,10 +5,10 @@
 печатается в активное поле. Поддерживает онлайн-движок Google и опциональный
 офлайн Vosk (если установлен)."""
 
-import threading
-import time
 import importlib.util
 import os
+import threading
+import time
 from typing import Optional
 
 try:
@@ -20,7 +20,7 @@ except ImportError:
 
 MICROPHONE_BACKEND_AVAILABLE = importlib.util.find_spec("pyaudio") is not None
 
-from ..config import VoiceConfig
+from ..config import DEFAULT_VOSK_MODEL_PATH, VoiceConfig
 
 
 class VoiceRecognizer:
@@ -33,26 +33,40 @@ class VoiceRecognizer:
         self.last_status = _initial_status(cfg)
         self._recognizer = sr.Recognizer() if SPEECH_AVAILABLE else None
         self._vosk_model = None
+        self._vosk_error = ""
         if SPEECH_AVAILABLE and cfg.engine == "vosk":
             self._try_load_vosk()
+            if self._vosk_model is None and self._vosk_error:
+                self.last_status = self._vosk_error
 
     @property
     def available(self) -> bool:
         if not (SPEECH_AVAILABLE and MICROPHONE_BACKEND_AVAILABLE and self.cfg.enabled):
             return False
+        if self.cfg.engine == "vosk":
+            return self._vosk_model is not None
         if self.cfg.engine == "google" and flac_converter_path() is None:
             return False
         return True
 
     def _try_load_vosk(self) -> None:
+        model_dir = getattr(self.cfg, "vosk_model_path", "") or DEFAULT_VOSK_MODEL_PATH
         try:
             import vosk  # type: ignore
-            import os
-            model_dir = os.path.join(os.path.dirname(__file__), "..", "data", "vosk-model")
-            if os.path.isdir(model_dir):
-                self._vosk_model = vosk.Model(model_dir)
-        except Exception:
+        except Exception as exc:
             self._vosk_model = None
+            self._vosk_error = f"vosk package unavailable: {exc}"
+            return
+        if not os.path.isdir(model_dir):
+            self._vosk_model = None
+            self._vosk_error = f"vosk model unavailable: {model_dir}"
+            return
+        try:
+            self._vosk_model = vosk.Model(model_dir)
+            self._vosk_error = ""
+        except Exception as exc:
+            self._vosk_model = None
+            self._vosk_error = f"vosk model load failed: {exc}"
 
     def start_listening(self) -> None:
         if not self.available or self.is_listening:
@@ -84,7 +98,9 @@ class VoiceRecognizer:
             self.is_listening = False
 
     def _recognize(self, audio) -> Optional[str]:
-        if self._vosk_model is not None:
+        if self.cfg.engine == "vosk":
+            if self._vosk_model is None:
+                return None
             try:
                 import json
                 import vosk  # type: ignore
@@ -92,7 +108,7 @@ class VoiceRecognizer:
                 rec.AcceptWaveform(audio.get_raw_data(convert_rate=16000, convert_width=2))
                 return json.loads(rec.FinalResult()).get("text", "") or None
             except Exception:
-                pass
+                return None
         try:
             return self._recognizer.recognize_google(audio, language=self.cfg.language)
         except sr.UnknownValueError:
@@ -108,6 +124,12 @@ def _initial_status(cfg: VoiceConfig) -> str:
         return "speech_recognition unavailable"
     if not MICROPHONE_BACKEND_AVAILABLE:
         return "microphone backend unavailable"
+    if cfg.engine == "vosk":
+        if importlib.util.find_spec("vosk") is None:
+            return "vosk package unavailable"
+        model_dir = getattr(cfg, "vosk_model_path", "") or DEFAULT_VOSK_MODEL_PATH
+        if not os.path.isdir(model_dir):
+            return "vosk model unavailable"
     if cfg.engine == "google" and flac_converter_path() is None:
         return "flac converter unavailable"
     return "ready"

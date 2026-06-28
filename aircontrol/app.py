@@ -353,7 +353,8 @@ class AirControlApp:
         self._refresh_controls()
         self._toast_msg(
             f"dwell profile: {profile} "
-            f"({self.cfg.cursor.dwell_time:.2f}s, {self.cfg.cursor.dwell_radius}px)"
+            f"({self.cfg.cursor.dwell_time:.2f}s, {self.cfg.cursor.dwell_radius}px, "
+            f"cooldown {self.cfg.cursor.dwell_cooldown:.2f}s)"
         )
 
     def _toggle(self, attr: str):
@@ -409,10 +410,16 @@ class AirControlApp:
             "mode": self.mode,
             "start_mode": self.cfg.start_mode,
             "profile": self.cfg.profile_name,
+            "assistive_preset": self.cfg.assistive_preset,
             "safe_input": self.cfg.input.dry_run,
             "dwell_enabled": self.cfg.cursor.dwell_enabled,
             "dwell_profile": self.cfg.cursor.dwell_profile,
+            "dwell_cooldown": self.cfg.cursor.dwell_cooldown,
             "dwell_only_mode": self.cfg.gestures.dwell_only_mode,
+            "swipe_backend": self.cfg.gestures.swipe_backend,
+            "voice_engine": self.cfg.voice.engine,
+            "gaze_enabled": self.cfg.fusion.gaze_enabled,
+            "gaze_mode": self.cfg.fusion.gaze_mode,
             "last_action": self.actions.last_action,
             "seconds_since_action": seconds_since_action,
             "last_input_error": self.actions.last_input_error,
@@ -703,6 +710,7 @@ class AirControlApp:
         R.draw_assistive_status(
             frame,
             profile=self.cfg.profile_name,
+            assistive_preset=self.cfg.assistive_preset,
             input_status=self.actions.input_status(),
             dwell_enabled=self.cfg.cursor.dwell_enabled,
             dwell_only_mode=self.cfg.gestures.dwell_only_mode,

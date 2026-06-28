@@ -162,6 +162,7 @@ def draw_runtime_health(frame, lines: List[str]) -> None:
 
 def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled: bool,
                           last_action: str, last_action_age: Optional[float],
+                          assistive_preset: str = "balanced",
                           dwell_only_mode: bool = False,
                           last_input_error: str = "",
                           last_input_error_age: Optional[float] = None) -> None:
@@ -175,6 +176,7 @@ def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled:
     color = (0, 255, 0) if input_ok else (0, 220, 255)
     lines = [
         f"profile: {profile}",
+        f"preset: {assistive_preset}",
         f"input: {input_status}",
         f"dwell: {'ON' if dwell_enabled else 'OFF'}",
         f"one: {'ON' if dwell_only_mode else 'OFF'}",
