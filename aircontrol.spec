@@ -41,6 +41,18 @@ for pkg in ("pynput", "SpeechRecognition", "opencv-python", "numpy", "Pillow"):
 datas += [("hand_landmarker.task", ".")]
 datas += [("packaging/USER_GUIDE_RU.txt", ".")]
 
+
+def _native_helper_binary():
+    name = "aircontrol-helper.exe" if sys.platform.startswith("win") else "aircontrol-helper"
+    path = os.path.join("bin", name)
+    if os.path.exists(path):
+        return [(path, ".")]
+    print("[spec] native helper not found; bundle will use Python diagnostics only")
+    return []
+
+
+binaries += _native_helper_binary()
+
 # Бэкенды pynput и прочее, что PyInstaller не находит автоматически.
 hiddenimports += [
     "PIL._tkinter_finder", "PIL.ImageTk",

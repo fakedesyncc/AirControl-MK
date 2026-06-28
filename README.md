@@ -49,8 +49,15 @@ AirControl помогает пользоваться компьютером бе
 - ассистивный профиль для слабых ноутбуков и аккуратного управления;
 - калибровка активной зоны руки и порогов щипка;
 - диагностика камеры, модели, прав ОС и input backend;
+- нативная диагностика ОС через Go helper в релизном бандле;
 - ZIP-отчёт поддержки для разработчика или помощника;
 - сборки для Windows, macOS и Linux через GitHub Actions.
+
+## Развитие
+
+Проект развивается вокруг ассистивного сценария: безопасный первый запуск,
+управление без точной моторики, понятная диагностика и установщики для обычного
+пользователя. Текущие этапы и release gate описаны в [ROADMAP.md](ROADMAP.md).
 
 ## Скачать
 
@@ -180,6 +187,15 @@ python -m aircontrol doctor --no-camera
 python -m aircontrol selftest
 ```
 
+Нативный diagnostic helper собирается Go-компилятором и нужен для release-бандла,
+но не обязателен для обычного запуска из исходников:
+
+```bash
+go test ./cmd/aircontrol-helper
+mkdir -p bin
+go build -trimpath -ldflags="-s -w" -o bin/aircontrol-helper ./cmd/aircontrol-helper
+```
+
 Optional-зависимости для исследовательских команд, расширенного ML и офлайн
 голоса находятся в `requirements-optional.txt`.
 
@@ -213,6 +229,10 @@ aircontrol/
   platform/           Windows, macOS, Linux API
   diagnostics.py      doctor и support bundle
   ui/                 HUD и калибровка
+cmd/
+  aircontrol-helper/  Go helper для native diagnostics
+docs/
+  NATIVE_HELPER.md    зачем нужен и как собирается Go helper
 packaging/            PyInstaller, Linux, Windows packaging
 tools/                smoke и release verification
 tests/                unit-тесты

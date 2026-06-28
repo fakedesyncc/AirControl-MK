@@ -25,6 +25,17 @@ from .input_backend import (
 )
 
 
+def _safe_print(message: str) -> None:
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        fallback = str(message).encode(encoding, errors="backslashreplace").decode(
+            encoding, errors="replace"
+        )
+        print(fallback)
+
+
 class ActionExecutor:
     def __init__(self, screenshot_dir: str,
                  on_toggle_record: Optional[Callable[[], None]] = None,
@@ -48,16 +59,16 @@ class ActionExecutor:
 
     def _warn_startup_once(self) -> None:
         if self.dry_run:
-            print("[input] dry-input: реальные события мыши/клавиатуры отключены.")
+            _safe_print("[input] dry-input: real mouse/keyboard events are disabled.")
         err = input_backend_error()
         if err and not self.dry_run:
-            print(f"[input] Низкоуровневый ввод недоступен: {err}")
-            print("[input] Жесты будут распознаваться, но клики/клавиши/курсор могут не исполняться.")
+            _safe_print(f"[input] low-level input is unavailable: {err}")
+            _safe_print("[input] gestures can be detected, but cursor/click/key events may not run.")
         warning = input_backend_warning()
         if warning and not self.dry_run:
-            print(f"[input] Предупреждение ввода: {warning}")
+            _safe_print(f"[input] input warning: {warning}")
         for warning in getattr(self.platform, "startup_warnings", lambda: [])():
-            print(f"[platform:{self.platform.name}] {warning}")
+            _safe_print(f"[platform:{self.platform.name}] {warning}")
 
     def input_status(self) -> str:
         if self.dry_run:
@@ -77,17 +88,17 @@ class ActionExecutor:
         if enabled:
             self.mouse = NullMouseController()
             self.keyboard = NullKeyboardController()
-            print("[input] dry-input: реальные события мыши/клавиатуры отключены.")
+            _safe_print("[input] dry-input: real mouse/keyboard events are disabled.")
         else:
             self.mouse = create_mouse_controller()
             self.keyboard = create_keyboard_controller()
             err = input_backend_error()
             if err:
-                print(f"[input] Низкоуровневый ввод недоступен: {err}")
+                _safe_print(f"[input] low-level input is unavailable: {err}")
             else:
                 warning = input_backend_warning()
                 if warning:
-                    print(f"[input] Предупреждение ввода: {warning}")
+                    _safe_print(f"[input] input warning: {warning}")
 
     def _remember(self, action: str) -> None:
         self.last_action = action

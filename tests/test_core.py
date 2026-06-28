@@ -840,6 +840,24 @@ class TestDiagnostics(unittest.TestCase):
         self.assertNotIn("input mouse move probe:", report)
         self.assertIn("Camera scan: skipped", report)
 
+    def test_native_helper_report_reads_json(self):
+        from aircontrol import diagnostics
+
+        class Result:
+            stdout = (
+                '{"app":"AirControl","helper_version":"0.1.0","os":"linux",'
+                '"arch":"amd64","display_server":"x11","tools":[]}'
+            )
+
+        with patch.object(diagnostics, "_native_helper_path", return_value="/tmp/aircontrol-helper"), \
+             patch.object(diagnostics.subprocess, "run", return_value=Result()) as run:
+            report = diagnostics.native_helper_report()
+
+        self.assertEqual(report["app"], "AirControl")
+        self.assertEqual(report["_helper_path"], "/tmp/aircontrol-helper")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], ["/tmp/aircontrol-helper", "doctor", "--json"])
+
     def test_doctor_summary_flags_input_probe_failure(self):
         from aircontrol.diagnostics import summarize_doctor_report
         summary = "\n".join(summarize_doctor_report(
@@ -969,6 +987,36 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn("AirControl readiness summary", doctor_summary)
             self.assertIn("Что сделать дальше", doctor_summary)
             self.assertIn("готовый AirControl-Setup.exe", doctor_summary)
+
+    def test_support_bundle_includes_native_helper_when_available(self):
+        from aircontrol import diagnostics
+
+        native_report = {
+            "app": "AirControl",
+            "helper_version": "0.1.0",
+            "os": "linux",
+            "arch": "amd64",
+            "display_server": "x11",
+            "tools": [{"name": "xdotool", "found": True}],
+            "_helper_path": "/tmp/aircontrol-helper",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "support.zip")
+            with patch.object(diagnostics, "native_helper_report", return_value=native_report):
+                diagnostics.save_support_bundle(path, scan_camera=False)
+
+            with zipfile.ZipFile(path) as zf:
+                names = set(zf.namelist())
+                manifest = zf.read("support-manifest.json").decode("utf-8")
+                native_json = zf.read("native-helper.json").decode("utf-8")
+                doctor = zf.read("doctor.txt").decode("utf-8")
+
+        self.assertIn("native-helper.json", names)
+        self.assertIn('"native_helper_included": true', manifest)
+        self.assertIn('"path": "native-helper.json"', manifest)
+        self.assertIn('"helper_version": "0.1.0"', native_json)
+        self.assertNotIn("_helper_path", native_json)
+        self.assertIn("Native helper: OK", doctor)
 
     def test_support_readme_without_runtime_does_not_reference_runtime_json(self):
         from aircontrol.diagnostics import build_support_manifest, build_support_readme

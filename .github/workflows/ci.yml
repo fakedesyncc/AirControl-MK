@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 concurrency:
   group: aircontrol-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,12 +36,26 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk libgl1 libglib2.0-0 xdotool
+          sudo apt-get install -y python3-tk libgl1 libgles2 libegl1 libglib2.0-0 xdotool
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Check native helper
+        shell: bash
+        run: |
+          changed="$(gofmt -l cmd)"
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            exit 1
+          fi
+          go test ./cmd/aircontrol-helper
+          mkdir -p bin
+          go build -trimpath -ldflags="-s -w" -o bin/aircontrol-helper ./cmd/aircontrol-helper
+          ./bin/aircontrol-helper doctor --json | tee native-helper-smoke.json
+          grep -q '"app": "AirControl"' native-helper-smoke.json
 
       - name: Run source checks
         run: |

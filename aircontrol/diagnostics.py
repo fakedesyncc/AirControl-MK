@@ -7,9 +7,11 @@ import json
 import os
 import platform as py_platform
 import shutil
+import subprocess
 import sys
 import time
 import zipfile
+from pathlib import Path
 from typing import List
 
 from . import __app_name__, __version__
@@ -34,6 +36,8 @@ def build_report(scan_camera: bool = True, camera_limit: int | None = None,
     lines.append(f"Python: {sys.version.split()[0]} ({sys.executable})")
     lines.append(f"Frozen bundle: {bool(getattr(sys, 'frozen', False))}")
     _append_system_resources(lines)
+    lines.append("")
+    _append_native_helper(lines, recommendations)
     lines.append("")
 
     _append_module(lines, "OpenCV", "cv2")
@@ -88,14 +92,20 @@ def save_support_bundle(path: str | None = None, scan_camera: bool = False,
         path = os.path.join(DATA_DIR, f"aircontrol-support-{time.strftime('%Y%m%d-%H%M%S')}.zip")
 
     report = build_report(scan_camera=scan_camera, input_probe=input_probe)
+    native_report = native_helper_report()
     doctor_summary = summarize_doctor_report(report)
-    manifest = build_support_manifest(report, runtime_info)
+    manifest = build_support_manifest(report, runtime_info, native_report)
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("README.txt", build_support_readme(manifest))
         zf.writestr("support-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         zf.writestr("doctor.txt", report)
         zf.writestr("doctor-summary.txt", "\n".join(doctor_summary) + "\n")
         zf.writestr("config.json", json.dumps(cfg.to_dict(), ensure_ascii=False, indent=2))
+        if native_report is not None:
+            zf.writestr(
+                "native-helper.json",
+                json.dumps(_public_native_helper_report(native_report), ensure_ascii=False, indent=2),
+            )
         if runtime_info is not None:
             runtime_payload = dict(runtime_info)
             runtime_payload["summary"] = summarize_runtime(runtime_info)
@@ -105,7 +115,8 @@ def save_support_bundle(path: str | None = None, scan_camera: bool = False,
     return path
 
 
-def build_support_manifest(report: str, runtime_info: dict | None = None) -> dict:
+def build_support_manifest(report: str, runtime_info: dict | None = None,
+                           native_report: dict | None = None) -> dict:
     """Build a small machine-readable index for the support ZIP."""
     files = [
         {"path": "README.txt", "purpose": "human-readable guide for this support bundle"},
@@ -118,6 +129,11 @@ def build_support_manifest(report: str, runtime_info: dict | None = None) -> dic
             {"path": "runtime-summary.txt", "purpose": "short live camera/control status"},
             {"path": "runtime.json", "purpose": "full live runtime status"},
         ])
+    if native_report is not None:
+        files.append({
+            "path": "native-helper.json",
+            "purpose": "native OS/session probe from the bundled AirControl helper",
+        })
     files.append({"path": "logs/", "purpose": "recent telemetry logs, if present"})
     return {
         "app": __app_name__,
@@ -128,6 +144,7 @@ def build_support_manifest(report: str, runtime_info: dict | None = None) -> dic
         "frozen_bundle": bool(getattr(sys, "frozen", False)),
         "camera_scan_included": "Camera scan: skipped" not in report,
         "runtime_included": runtime_info is not None,
+        "native_helper_included": native_report is not None,
         "files": files,
     }
 
@@ -494,13 +511,96 @@ def _format_bytes(value: int) -> str:
 
 def _run_short(cmd: list[str]) -> str | None:
     try:
-        import subprocess
         out = subprocess.run(cmd, text=True, capture_output=True, timeout=0.5)
         if out.returncode == 0:
             return out.stdout.strip() or None
     except Exception:
         pass
     return None
+
+
+def _append_native_helper(lines: List[str], recommendations: List[str]) -> None:
+    report = native_helper_report()
+    if report is None:
+        lines.append("Native helper: missing (optional)")
+        return
+
+    helper_path = str(report.get("_helper_path") or "unknown")
+    lines.append(
+        f"Native helper: OK ({helper_path}; version={report.get('helper_version', 'unknown')})"
+    )
+    lines.append(f"Native helper OS: {report.get('os', 'unknown')}/{report.get('arch', 'unknown')}")
+    lines.append(f"Native helper display: {report.get('display_server', 'unknown')}")
+
+    devices = [str(item) for item in report.get("video_devices") or []]
+    if devices:
+        lines.append(f"Native helper video devices: {', '.join(devices)}")
+
+    tools = report.get("tools") or []
+    if isinstance(tools, list) and tools:
+        summary = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            name = str(tool.get("name") or "unknown")
+            status = "OK" if tool.get("found") else "missing"
+            summary.append(f"{name}={status}")
+        if summary:
+            lines.append(f"Native helper tools: {', '.join(summary)}")
+
+    for item in report.get("recommendations") or []:
+        recommendations.append(f"Native helper: {item}")
+
+
+def native_helper_report() -> dict | None:
+    """Return the optional native helper report, if the helper is available."""
+    helper = _native_helper_path()
+    if helper is None:
+        return None
+    try:
+        result = subprocess.run(
+            [str(helper), "doctor", "--json"],
+            text=True,
+            capture_output=True,
+            timeout=2.0,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+    except Exception:
+        return None
+
+    if isinstance(data, dict):
+        data["_helper_path"] = str(helper)
+        return data
+    return None
+
+
+def _public_native_helper_report(report: dict) -> dict:
+    return {key: value for key, value in report.items() if not str(key).startswith("_")}
+
+
+def _native_helper_path() -> Path | None:
+    exe_name = "aircontrol-helper.exe" if sys.platform.startswith("win") else "aircontrol-helper"
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        executable_dir = Path(sys.executable).resolve().parent
+        candidates.append(executable_dir / exe_name)
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass).resolve() / exe_name)
+
+    project_dir = Path(__file__).resolve().parents[1]
+    candidates.extend([
+        project_dir / "bin" / exe_name,
+        project_dir / exe_name,
+    ])
+
+    for candidate in candidates:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return candidate
+
+    found = shutil.which(exe_name)
+    return Path(found) if found else None
 
 
 def _append_tk(lines: List[str], recommendations: List[str]) -> None:

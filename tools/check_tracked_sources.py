@@ -12,7 +12,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ROOTS = ("aircontrol", "tests", "tools", "packaging")
+SOURCE_ROOTS = {
+    "aircontrol": ("*.py",),
+    "tests": ("*.py",),
+    "tools": ("*.py",),
+    "packaging": ("*.py",),
+    "cmd": ("*.go",),
+}
+SOURCE_FILES = ("go.mod",)
 
 
 def _git_lines(args: list[str]) -> set[str]:
@@ -44,16 +51,22 @@ def main() -> int:
     tracked = _git_lines(["ls-files"])
     missing: list[str] = []
 
-    for source_root in SOURCE_ROOTS:
+    for source_file in SOURCE_FILES:
+        path = ROOT / source_file
+        if path.exists() and source_file not in tracked:
+            missing.append(source_file)
+
+    for source_root, patterns in SOURCE_ROOTS.items():
         root = ROOT / source_root
         if not root.exists():
             continue
-        for path in root.rglob("*.py"):
-            if "__pycache__" in path.parts:
-                continue
-            rel = path.relative_to(ROOT).as_posix()
-            if rel not in tracked:
-                missing.append(rel)
+        for pattern in patterns:
+            for path in root.rglob(pattern):
+                if "__pycache__" in path.parts:
+                    continue
+                rel = path.relative_to(ROOT).as_posix()
+                if rel not in tracked:
+                    missing.append(rel)
 
     if missing:
         print("Source files exist locally but are not tracked by git:", file=sys.stderr)

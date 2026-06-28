@@ -50,7 +50,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: AirControl <support@example.invalid>
-Depends: libgl1, libglib2.0-0, xdotool
+Depends: libgl1, libgles2, libegl1, libglib2.0-0, xdotool
 Description: Assistive hands-free computer control
  AirControl lets people control the computer with a webcam, hand gestures,
  dwell-click and optional voice commands. The package includes the Python

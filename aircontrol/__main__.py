@@ -29,6 +29,18 @@ PRESETS = {
 }
 
 
+def _configure_stdio() -> None:
+    """Keep CLI diagnostics printable on Windows legacy code pages."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def cmd_run(args):
     from .app import AirControlApp
     cfg = AppConfig.load()
@@ -124,6 +136,7 @@ def cmd_selftest(args):
         import traceback
         traceback.print_exc()
         print(f"✗ Самопроверка провалена: {exc}")
+        raise SystemExit(1)
 
 
 def cmd_mictest(args):
@@ -202,6 +215,7 @@ def cmd_synth(args):
 
 
 def main(argv=None):
+    _configure_stdio()
     parser = argparse.ArgumentParser(prog="aircontrol",
                                      description="AirControl — мультимодальное бесконтактное управление ПК")
     sub = parser.add_subparsers(dest="command")

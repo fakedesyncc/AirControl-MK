@@ -4,6 +4,10 @@ AirControl распространяется как standalone-приложени
 Python, компилятор или консоль: PyInstaller кладёт runtime, зависимости и модель
 руки внутрь сборки.
 
+Релизная сборка дополнительно включает маленький Go helper
+`aircontrol-helper`: он собирает native diagnostics по ОС, Linux-сессии,
+камерам и системным утилитам. Для пользователя это часть готового бандла.
+
 ## Что Получается
 
 | Платформа | Артефакт | Назначение |
@@ -41,6 +45,8 @@ Actions может ничего не собрать.
 
 ```bash
 python tools/check_tracked_sources.py
+go test ./cmd/aircontrol-helper
+go build -trimpath -ldflags="-s -w" -o bin/aircontrol-helper ./cmd/aircontrol-helper
 python -m compileall aircontrol tests tools packaging/pyinstaller_hooks run_app.py
 python -m unittest discover -s tests
 python -m aircontrol doctor --no-camera
@@ -56,9 +62,15 @@ GitHub Actions.
 ```bash
 python tools/check_tracked_sources.py
 pip install -r requirements-build.txt
+go test ./cmd/aircontrol-helper
+mkdir -p bin
+go build -trimpath -ldflags="-s -w" -o bin/aircontrol-helper ./cmd/aircontrol-helper
 pyinstaller aircontrol.spec --noconfirm
 python tools/smoke_build.py
 ```
+
+На Windows используйте имя `bin/aircontrol-helper.exe`. В GitHub Actions это
+делается автоматически на каждой ОС.
 
 Результат:
 
@@ -89,6 +101,7 @@ Compress-Archive -Path dist\* -DestinationPath AirControl-Windows.zip
 Linux:
 
 ```bash
+sudo apt install python3-tk libgl1 libgles2 libegl1 libglib2.0-0 xdotool xvfb
 cp packaging/USER_GUIDE_RU.txt dist/AirControl/USER_GUIDE_RU.txt
 cp packaging/linux/AirControl.desktop dist/AirControl/AirControl.desktop
 tar -czf AirControl-Linux.tar.gz -C dist AirControl
@@ -107,8 +120,8 @@ python tools/verify_release_artifacts.py --os Linux --skip-appimage-run
 ```
 
 Verifier проверяет наличие исполняемого файла, `USER_GUIDE_RU.txt`,
-Linux desktop-файла, Windows installer и состав bundled FLAC-конвертеров
-SpeechRecognition.
+Linux desktop-файла, Windows installer, native helper и состав bundled
+FLAC-конвертеров SpeechRecognition.
 
 ## Инструкция Для Тестеров
 

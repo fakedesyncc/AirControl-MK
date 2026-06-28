@@ -44,7 +44,9 @@ def _check_zip(path: Path, required: list[str]) -> None:
 
 def _check_zip_flac_policy(path: Path, os_name: str) -> None:
     with zipfile.ZipFile(path) as zf:
-        found = _check_speech_flac_policy(zf.namelist(), os_name, path.name)
+        entries = zf.namelist()
+        found = _check_speech_flac_policy(entries, os_name, path.name)
+        _check_native_helper(entries, os_name, path.name)
     print(f"SpeechRecognition FLAC policy OK: {path.name} ({sorted(found)})")
 
 
@@ -60,7 +62,9 @@ def _check_tar_gz(path: Path, required: list[str]) -> None:
 
 def _check_tar_flac_policy(path: Path, os_name: str) -> None:
     with tarfile.open(path, "r:gz") as tf:
-        found = _check_speech_flac_policy(tf.getnames(), os_name, path.name)
+        entries = tf.getnames()
+        found = _check_speech_flac_policy(entries, os_name, path.name)
+        _check_native_helper(entries, os_name, path.name)
     print(f"SpeechRecognition FLAC policy OK: {path.name} ({sorted(found)})")
 
 
@@ -80,7 +84,9 @@ def _check_deb(path: Path, required: list[str]) -> None:
     missing = [name for name in required if name not in result.stdout]
     if missing:
         _fail(f"{path.name} misses entries: {missing}")
-    found = _check_speech_flac_policy(_deb_paths_from_contents(result.stdout), "Linux", path.name)
+    entries = _deb_paths_from_contents(result.stdout)
+    found = _check_speech_flac_policy(entries, "Linux", path.name)
+    _check_native_helper(entries, "Linux", path.name)
     print(f"SpeechRecognition FLAC policy OK: {path.name} ({sorted(found)})")
     print(f"deb OK: {path}")
 
@@ -146,6 +152,14 @@ def _expected_speech_flac_names(os_name: str) -> set[str]:
         if machine in {"x86_64", "AMD64"}:
             return {"flac-linux-x86_64"}
     return set()
+
+
+def _check_native_helper(entries: list[str], os_name: str, artifact_name: str) -> None:
+    expected = "aircontrol-helper.exe" if os_name == "Windows" else "aircontrol-helper"
+    for entry in entries:
+        if entry.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] == expected:
+            return
+    _fail(f"{artifact_name} misses native helper: {expected}")
 
 
 def _verify_macos(root: Path) -> None:
