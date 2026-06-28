@@ -36,7 +36,7 @@ from aircontrol.gestures.engine import FrameGestures, GestureEngine
 from aircontrol.gestures.synthetic import build_hand, generate_synthetic_dataset
 from aircontrol.gestures.ml import MLPoseClassifier, train_from_dataset
 from aircontrol.tracking.filters import create_filter
-from aircontrol.tracking.hand_tracker import HandResult
+from aircontrol.tracking.hand_tracker import HandResult, INDEX_TIP, THUMB_TIP
 
 
 class TestConfig(unittest.TestCase):
@@ -97,6 +97,7 @@ class TestConfig(unittest.TestCase):
         self.assertTrue(cfg.cursor.dwell_enabled)
         self.assertEqual(cfg.cursor.dwell_profile, "normal")
         self.assertLess(cfg.cursor.active_region, 0.55)
+        self.assertTrue(cfg.gestures.dwell_only_mode)
         self.assertFalse(cfg.gestures.dynamic_enabled)
         self.assertFalse(cfg.gestures.bimanual_enabled)
         self.assertEqual(cfg.performance.detect_downscale, 0.5)
@@ -758,6 +759,25 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(fg.pose, "open_palm")
         self.assertTrue(fg.frozen)
 
+    def test_dwell_only_suppresses_pinch_actions(self):
+        rng = np.random.default_rng(32)
+        lm = build_hand([0.05, 0.95, 0.95, 0.95], 0.15, rng,
+                        noise=0.0, rot_range=0.0, scale_range=(1.0, 1.0))
+        lm[THUMB_TIP, :2] = lm[INDEX_TIP, :2] + 0.001
+        hand = HandResult(landmarks=lm, handedness="Right", score=0.9)
+
+        normal = GestureEngine(AppConfig().gestures).process(hand)
+        self.assertIn("left_down", [e.action for e in normal.events])
+
+        cfg = AppConfig().gestures
+        cfg.dwell_only_mode = True
+        safe = GestureEngine(cfg).process(hand)
+        self.assertEqual(safe.events, [])
+        self.assertTrue(safe.hand_detected)
+        self.assertIsNotNone(safe.cursor_norm)
+        self.assertLess(safe.pinch_ratios["index"], cfg.pinch_trigger_ratio)
+        self.assertFalse(safe.listening_requested)
+
 
 class TestPreviewMode(unittest.TestCase):
     def test_keyboard_shortcuts_work_in_latin_and_cyrillic_layouts(self):
@@ -766,6 +786,7 @@ class TestPreviewMode(unittest.TestCase):
             (("f", "f"), ("Cyrillic_a", "а"), "cycle_filter"),
             (("g", "g"), ("Cyrillic_pe", "п"), "toggle_recognizer"),
             (("d", "d"), ("Cyrillic_ve", "в"), "toggle_dwell"),
+            (("o", "o"), ("Cyrillic_shcha", "щ"), "toggle_one_gesture"),
             (("l", "l"), ("Cyrillic_de", "д"), "toggle_landmarks"),
             (("h", "h"), ("Cyrillic_er", "р"), "toggle_hud"),
         ]
@@ -835,6 +856,32 @@ class TestPreviewMode(unittest.TestCase):
         self.assertEqual(cfg.cursor.dwell_profile, "fast")
         self.assertIn("refresh", calls)
         self.assertTrue(any("dwell profile: fast" in str(call) for call in calls))
+
+    def test_runtime_one_gesture_toggle_enables_dwell_and_resets_bimanual(self):
+        from aircontrol.app import AirControlApp
+
+        class Bimanual:
+            reset_called = False
+
+            def reset(self):
+                self.reset_called = True
+
+        cfg = AppConfig()
+        calls = []
+        app = type("FakeApp", (), {})()
+        app.cfg = cfg
+        app.bimanual = Bimanual()
+        app._refresh_controls = lambda: calls.append("refresh")
+        app._toast_msg = lambda msg: calls.append(msg)
+
+        AirControlApp.toggle_one_gesture_mode(app)
+
+        self.assertTrue(cfg.gestures.dwell_only_mode)
+        self.assertTrue(cfg.cursor.dwell_enabled)
+        self.assertEqual(cfg.cursor.dwell_profile, "normal")
+        self.assertTrue(app.bimanual.reset_called)
+        self.assertIn("refresh", calls)
+        self.assertTrue(any("one gesture: ON" in str(call) for call in calls))
 
     def test_control_mode_reports_missing_hand(self):
         from aircontrol.app import build_runtime_health_lines
@@ -1112,6 +1159,7 @@ class TestDiagnostics(unittest.TestCase):
                                           "safe_input": True,
                                           "dwell_enabled": True,
                                           "dwell_profile": "steady",
+                                          "dwell_only_mode": True,
                                           "input_status": "DRY INPUT",
                                           "hand_detected": False,
                                           "last_action": "left_click",
@@ -1149,12 +1197,14 @@ class TestDiagnostics(unittest.TestCase):
             self.assertIn('"profile": "assistive"', runtime)
             self.assertIn('"dwell_enabled": true', runtime)
             self.assertIn('"dwell_profile": "steady"', runtime)
+            self.assertIn('"dwell_only_mode": true', runtime)
             self.assertIn('"summary":', runtime)
             self.assertIn("Profile: assistive", summary)
             self.assertIn("Control path: OFF (Safe input)", summary)
             self.assertIn("Safe input: ON", summary)
             self.assertIn("Dwell-click: ON", summary)
             self.assertIn("Dwell profile: steady", summary)
+            self.assertIn("One-gesture mode: ON", summary)
             self.assertIn("Last action: left_click (1.25s ago)", summary)
             self.assertIn("Safe input is ON", summary)
             self.assertIn("Low FPS", summary)

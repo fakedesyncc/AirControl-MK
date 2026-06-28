@@ -60,7 +60,7 @@ def resolve_key_command(keysym: str = "", char: str = "") -> str | None:
         return "mode_control"
 
     # Same physical QWERTY keys in English and Russian layouts:
-    # f/а, g/п, d/в, l/д, h/р.
+    # f/а, g/п, d/в, o/щ, l/д, h/р.
     char_map = {
         "f": "cycle_filter",
         "а": "cycle_filter",
@@ -68,6 +68,8 @@ def resolve_key_command(keysym: str = "", char: str = "") -> str | None:
         "п": "toggle_recognizer",
         "d": "toggle_dwell",
         "в": "toggle_dwell",
+        "o": "toggle_one_gesture",
+        "щ": "toggle_one_gesture",
         "l": "toggle_landmarks",
         "д": "toggle_landmarks",
         "h": "toggle_hud",
@@ -83,6 +85,8 @@ def resolve_key_command(keysym: str = "", char: str = "") -> str | None:
         "cyrillic_pe": "toggle_recognizer",
         "d": "toggle_dwell",
         "cyrillic_ve": "toggle_dwell",
+        "o": "toggle_one_gesture",
+        "cyrillic_shcha": "toggle_one_gesture",
         "l": "toggle_landmarks",
         "cyrillic_de": "toggle_landmarks",
         "h": "toggle_hud",
@@ -213,6 +217,7 @@ class AirControlApp:
         add("mode", "Control", self.toggle_mode, primary=True)
         add("safe", "Safe", self.toggle_safe_input)
         add("dwell", "Dwell", self.toggle_dwell)
+        add("one_gesture", "One", self.toggle_one_gesture_mode)
         add("dwell_profile", "Dwell profile", self.cycle_dwell_profile)
         add("minus", "-", lambda: self.change_sensitivity(-0.1))
         add("plus", "+", lambda: self.change_sensitivity(0.1))
@@ -264,6 +269,7 @@ class AirControlApp:
             "cycle_filter": self.cycle_filter,
             "toggle_recognizer": self.toggle_recognizer,
             "toggle_dwell": self.toggle_dwell,
+            "toggle_one_gesture": self.toggle_one_gesture_mode,
             "toggle_landmarks": lambda: self._toggle("show_landmarks"),
             "toggle_hud": lambda: self._toggle("show_hud"),
             "fitts_gesture": lambda: self.launch_fitts("gesture"),
@@ -328,6 +334,18 @@ class AirControlApp:
             apply_dwell_profile(self.cfg, "normal")
         self._refresh_controls()
         self._toast_msg(f"dwell-click: {'ON' if self.cfg.cursor.dwell_enabled else 'OFF'}")
+
+    def toggle_one_gesture_mode(self):
+        self.cfg.gestures.dwell_only_mode = not self.cfg.gestures.dwell_only_mode
+        if self.cfg.gestures.dwell_only_mode and not self.cfg.cursor.dwell_enabled:
+            apply_dwell_profile(self.cfg, "normal")
+        bimanual = getattr(self, "bimanual", None)
+        if bimanual is not None and self.cfg.gestures.dwell_only_mode:
+            bimanual.reset()
+        self._refresh_controls()
+        self._toast_msg(
+            f"one gesture: {'ON' if self.cfg.gestures.dwell_only_mode else 'OFF'}"
+        )
 
     def cycle_dwell_profile(self):
         profile = next_dwell_profile(getattr(self.cfg.cursor, "dwell_profile", "custom"))
@@ -394,6 +412,7 @@ class AirControlApp:
             "safe_input": self.cfg.input.dry_run,
             "dwell_enabled": self.cfg.cursor.dwell_enabled,
             "dwell_profile": self.cfg.cursor.dwell_profile,
+            "dwell_only_mode": self.cfg.gestures.dwell_only_mode,
             "last_action": self.actions.last_action,
             "seconds_since_action": seconds_since_action,
             "last_input_error": self.actions.last_input_error,
@@ -440,6 +459,12 @@ class AirControlApp:
                 text="Dwell ON" if self.cfg.cursor.dwell_enabled else "Dwell OFF",
                 bg="#43d17d" if self.cfg.cursor.dwell_enabled else "#26313b",
                 fg="#07100b" if self.cfg.cursor.dwell_enabled else "#f1f5f8",
+            )
+        if "one_gesture" in buttons:
+            buttons["one_gesture"].configure(
+                text="One ON" if self.cfg.gestures.dwell_only_mode else "One OFF",
+                bg="#43d17d" if self.cfg.gestures.dwell_only_mode else "#26313b",
+                fg="#07100b" if self.cfg.gestures.dwell_only_mode else "#f1f5f8",
             )
         if "dwell_profile" in buttons:
             profile = getattr(self.cfg.cursor, "dwell_profile", "custom")
@@ -565,8 +590,16 @@ class AirControlApp:
         hands = self._detect_hands_for_current_frame(frame)
         # Двуручный pinch-to-zoom обрабатываем первым: если он активен, одноручные
         # жесты подавляются (иначе щипок ведущей руки начал бы перетаскивание).
-        zoom_actions = self.bimanual.process(hands) if self.bimanual else []
+        one_gesture = self.cfg.gestures.dwell_only_mode
+        if self.bimanual and one_gesture:
+            self.bimanual.reset()
+        zoom_actions = (
+            self.bimanual.process(hands)
+            if self.bimanual and not one_gesture else []
+        )
         bimanual_active = self.bimanual.engaged if self.bimanual else False
+        if one_gesture:
+            bimanual_active = False
 
         hand = None if bimanual_active else self._pick_primary(hands)
         fg = self.engine.process(hand)
@@ -672,6 +705,7 @@ class AirControlApp:
             profile=self.cfg.profile_name,
             input_status=self.actions.input_status(),
             dwell_enabled=self.cfg.cursor.dwell_enabled,
+            dwell_only_mode=self.cfg.gestures.dwell_only_mode,
             last_action=self.actions.last_action,
             last_action_age=time.time() - self.actions.last_action_time
             if self.actions.last_action_time else None,

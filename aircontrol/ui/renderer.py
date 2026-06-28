@@ -162,6 +162,7 @@ def draw_runtime_health(frame, lines: List[str]) -> None:
 
 def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled: bool,
                           last_action: str, last_action_age: Optional[float],
+                          dwell_only_mode: bool = False,
                           last_input_error: str = "",
                           last_input_error_age: Optional[float] = None) -> None:
     h, w = frame.shape[:2]
@@ -176,6 +177,7 @@ def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled:
         f"profile: {profile}",
         f"input: {input_status}",
         f"dwell: {'ON' if dwell_enabled else 'OFF'}",
+        f"one: {'ON' if dwell_only_mode else 'OFF'}",
     ]
     if last_action and (last_action_age is None or last_action_age < 3.0):
         lines.append(f"action: {last_action}")

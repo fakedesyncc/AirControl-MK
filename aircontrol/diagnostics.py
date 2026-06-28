@@ -153,7 +153,8 @@ def build_support_readme(manifest: dict) -> str:
     if manifest.get("runtime_included"):
         runtime_note = (
             "2. Откройте runtime-summary.txt: он показывает состояние камеры, FPS, "
-            "Control path, Safe/Input, dwell-click, последнюю команду и runtime-проблемы.\n"
+            "Control path, Safe/Input, dwell-click, one-gesture mode, последнюю команду "
+            "и runtime-проблемы.\n"
         )
         details_note = "3. Если summary недостаточно, откройте doctor.txt и runtime.json.\n"
     else:
@@ -174,6 +175,8 @@ def build_support_readme(manifest: dict) -> str:
         "4. config.json помогает понять профиль, камеру, Safe/Dwell и настройки производительности.\n\n"
         "Обычные причины проблем:\n"
         "- DRY INPUT означает безопасный режим: клики и клавиши намеренно отключены.\n"
+        "- One-gesture mode ON означает, что щипки, скролл, голос и zoom отключены: "
+        "работают наведение, dwell-click и пауза открытой ладонью.\n"
         "- INPUT OFF/RISK/ERROR означает, что ОС может блокировать управление мышью/клавиатурой.\n"
         "- input probe показывает, проверялось ли безопасное движение курсора без кликов.\n"
         "- Low FPS/Slow detection обычно связаны с производительностью, освещением или камерой.\n"
@@ -302,6 +305,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
     safe_input = _bool_or_none(runtime_info.get("safe_input"))
     dwell_enabled = _bool_or_none(runtime_info.get("dwell_enabled"))
     dwell_profile = str(runtime_info.get("dwell_profile", "unknown") or "unknown")
+    dwell_only_mode = _bool_or_none(runtime_info.get("dwell_only_mode"))
     last_action = str(runtime_info.get("last_action", "") or "")
     seconds_since_action = runtime_info.get("seconds_since_action")
     last_input_error = str(runtime_info.get("last_input_error", "") or "")
@@ -324,6 +328,7 @@ def summarize_runtime(runtime_info: dict) -> List[str]:
         f"Safe input: {_on_off_unknown(safe_input)}",
         f"Dwell-click: {_on_off_unknown(dwell_enabled)}",
         f"Dwell profile: {dwell_profile}",
+        f"One-gesture mode: {_on_off_unknown(dwell_only_mode)}",
         f"Input: {input_status}",
         f"Hand detected: {hand_detected}",
         f"FPS: {fps if fps is not None else 'unknown'}",
@@ -664,6 +669,7 @@ def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:
     lines.append(f"dwell_profile: {getattr(cfg.cursor, 'dwell_profile', 'custom')}")
     lines.append(f"dwell_time: {cfg.cursor.dwell_time}")
     lines.append(f"dwell_radius: {cfg.cursor.dwell_radius}")
+    lines.append(f"dwell_only_mode: {cfg.gestures.dwell_only_mode}")
     lines.append(f"dynamic_enabled: {cfg.gestures.dynamic_enabled}")
     lines.append(f"bimanual_enabled: {cfg.gestures.bimanual_enabled}")
 

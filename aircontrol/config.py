@@ -144,6 +144,8 @@ class GestureConfig:
     double_click_interval: float = 0.4
     scroll_threshold: float = 0.015
     scroll_speed: float = 3.0
+    # Ассистивный режим одного жеста: курсор + dwell-click без щипков/голоса/скролла.
+    dwell_only_mode: bool = False
     # Динамические жесты (свайпы открытой ладонью).
     dynamic_enabled: bool = True
     swipe_min_dist: float = 0.18      # мин. смещение (норм. координаты)
@@ -412,6 +414,7 @@ def apply_assistive_profile(cfg: AppConfig) -> AppConfig:
     apply_dwell_profile(cfg, "normal")
 
     # Reduce accidental high-energy gestures and CPU load.
+    cfg.gestures.dwell_only_mode = True
     cfg.gestures.dynamic_enabled = False
     cfg.gestures.bimanual_enabled = False
     cfg.gestures.pose_smoothing_window = max(cfg.gestures.pose_smoothing_window, 5)

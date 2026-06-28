@@ -156,6 +156,14 @@ class GestureEngine:
 
         now = time.time()
 
+        if self.cfg.dwell_only_mode:
+            out.frozen = pose == "open_palm"
+            self._release_all(out)
+            self._last_scroll_y = None
+            if self.dynamic:
+                self.dynamic.reset()
+            return out
+
         # Поза-гейты: кулак/ладонь/мир перехватывают управление.
         if pose == "fist":
             out.listening_requested = True
