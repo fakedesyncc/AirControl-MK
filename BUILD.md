@@ -40,6 +40,7 @@ Actions может ничего не собрать.
 ## Локальная Проверка Исходников
 
 ```bash
+python tools/check_tracked_sources.py
 python -m compileall aircontrol tests tools packaging/pyinstaller_hooks run_app.py
 python -m unittest discover -s tests
 python -m aircontrol doctor --no-camera
@@ -53,6 +54,7 @@ Linux-сборку на Linux, macOS-сборку на macOS. Для всех т
 GitHub Actions.
 
 ```bash
+python tools/check_tracked_sources.py
 pip install -r requirements-build.txt
 pyinstaller aircontrol.spec --noconfirm
 python tools/smoke_build.py

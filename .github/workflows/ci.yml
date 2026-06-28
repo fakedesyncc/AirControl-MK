@@ -37,6 +37,7 @@ jobs:
 
       - name: Run source checks
         run: |
+          python tools/check_tracked_sources.py
           python -m compileall aircontrol tests tools packaging/pyinstaller_hooks run_app.py
           python -m unittest discover -s tests
           python -m aircontrol doctor --no-camera
