@@ -24,6 +24,7 @@
 - [x] Doctor и support ZIP.
 - [x] Linux input diagnostics: Xorg/Wayland, `xdotool`, `ydotool`.
 - [x] Native Go helper для проверки ОС, Linux-сессии, камер и системных утилит.
+- [x] Preflight перед реальным ассистивным управлением: безопасная проверка input backend.
 - [x] GitHub Actions для CI и сборок.
 - [x] Integrity check, чтобы локально ignored-файлы не ломали CI.
 - [ ] Проверить артефакты GitHub Actions на Windows, macOS и Linux.
@@ -36,7 +37,7 @@
 нестабильно.
 
 - Input wizard в GUI: отдельный экран `Камера -> Рука -> Ввод -> Готово`.
-- Безопасный тест движения курсора на 1 px из стартового окна.
+- Безопасный тест движения курсора на 1 px из стартового окна и preflight перед control.
 - Отдельные статусы для камеры, FPS, распознавания руки и input backend.
 - Автоматическое предложение Xorg/ydotool для Linux, если обнаружен Wayland.
 - Настройки чувствительности и dwell-click крупными кнопками без клавиатуры.

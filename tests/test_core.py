@@ -437,6 +437,21 @@ class TestLauncherConfig(unittest.TestCase):
         self.assertEqual(cfg.start_mode, "control")
         self.assertFalse(cfg.input.dry_run)
 
+    def test_control_preflight_required_only_for_real_control(self):
+        from aircontrol.launcher import _requires_control_preflight
+
+        cfg = AppConfig()
+        cfg.start_mode = "control"
+        cfg.input.dry_run = False
+        self.assertTrue(_requires_control_preflight(cfg))
+
+        cfg.input.dry_run = True
+        self.assertFalse(_requires_control_preflight(cfg))
+
+        cfg.start_mode = "view"
+        cfg.input.dry_run = False
+        self.assertFalse(_requires_control_preflight(cfg))
+
     def test_launcher_status_from_readiness_summary(self):
         from aircontrol.launcher import _launcher_status_from_summary
         self.assertIn("проблему", _launcher_status_from_summary([
@@ -447,6 +462,68 @@ class TestLauncherConfig(unittest.TestCase):
             "Status: ready for safe training.",
             "- Camera was not opened during this check.",
         ]))
+
+    def test_control_preflight_message_only_when_attention_needed(self):
+        from aircontrol.launcher import _control_preflight_message
+
+        self.assertIsNone(_control_preflight_message([
+            "=== AirControl readiness summary ===",
+            "Status: ready for safe training.",
+        ]))
+        message = _control_preflight_message([
+            "=== AirControl readiness summary ===",
+            "Status: needs attention before assistive control.",
+            "- OS input backend is unavailable: gestures may be detected but cannot control the computer.",
+        ])
+        self.assertIn("не подтвердил", message)
+        self.assertIn("Безопасная тренировка", message)
+
+    def test_control_preflight_opens_diagnostics_when_user_declines(self):
+        from aircontrol.launcher import _confirm_control_preflight
+
+        class Root:
+            def after(self, _delay, callback):
+                callback()
+
+        class Status:
+            value = ""
+
+            def set(self, value):
+                self.value = value
+
+        opened = []
+        status = Status()
+        ok = _confirm_control_preflight(
+            Root(),
+            status_var=status,
+            diagnostics_callback=lambda: opened.append(True),
+            report_builder=lambda **_kwargs: "doctor",
+            summary_builder=lambda _report: [
+                "=== AirControl readiness summary ===",
+                "Status: needs attention before assistive control.",
+                "- OS input backend is unavailable: gestures may be detected but cannot control the computer.",
+            ],
+            ask_yes_no=lambda _title, _message: False,
+        )
+
+        self.assertFalse(ok)
+        self.assertEqual(opened, [True])
+        self.assertIn("не запущено", status.value)
+
+    def test_control_preflight_continues_when_ready(self):
+        from aircontrol.launcher import _confirm_control_preflight
+
+        ok = _confirm_control_preflight(
+            object(),
+            report_builder=lambda **_kwargs: "doctor",
+            summary_builder=lambda _report: [
+                "=== AirControl readiness summary ===",
+                "Status: ready for safe training.",
+            ],
+            ask_yes_no=lambda _title, _message: (_ for _ in ()).throw(AssertionError("should not ask")),
+        )
+
+        self.assertTrue(ok)
 
     def test_launcher_launch_success_destroys_root_and_runs_app(self):
         from aircontrol.launcher import _launch_aircontrol_from_launcher

@@ -10,6 +10,7 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+from typing import Callable
 
 from .config import AppConfig, apply_assistive_profile
 
@@ -68,6 +69,14 @@ def run_launcher() -> None:
             dry_input=dry_input,
             start_mode=start_mode,
         )
+        if _requires_control_preflight(cfg):
+            ok = _confirm_control_preflight(
+                root,
+                status_var=status,
+                diagnostics_callback=show_diagnostics,
+            )
+            if not ok:
+                return
         _launch_aircontrol_from_launcher(root, cfg)
 
     def run_calibration() -> None:
@@ -249,6 +258,76 @@ def _launcher_status_from_summary(summary: list[str]) -> str:
     if "Camera was not opened" in text:
         return "Базовая проверка пройдена. Камера проверится при безопасной тренировке."
     return "Базовая проверка пройдена. Начните с безопасной тренировки."
+
+
+def _requires_control_preflight(cfg: AppConfig) -> bool:
+    return cfg.start_mode == "control" and not cfg.input.dry_run
+
+
+def _control_preflight_message(summary: list[str]) -> str | None:
+    text = "\n".join(summary)
+    if "Status: needs attention" not in text:
+        return None
+    issues = [
+        line[2:] for line in summary
+        if line.startswith("- ") and not line.startswith("- Нажмите")
+    ][:4]
+    issue_text = "\n".join(f"- {item}" for item in issues) if issues else "- Ввод ОС требует проверки."
+    return (
+        "AirControl пока не подтвердил, что ОС принимает управление мышью и клавиатурой.\n\n"
+        f"{issue_text}\n\n"
+        "Если продолжить, жесты могут распознаваться, но курсор, клики или клавиши "
+        "могут не выполняться. Нажмите «Нет», чтобы открыть диагностику и сохранить ZIP-отчёт. "
+        "Для тренировки без риска используйте «Безопасная тренировка»."
+    )
+
+
+def _confirm_control_preflight(
+    root,
+    *,
+    status_var=None,
+    diagnostics_callback: Callable[[], None] | None = None,
+    report_builder: Callable[..., str] | None = None,
+    summary_builder: Callable[[str], list[str]] | None = None,
+    ask_yes_no: Callable[[str, str], bool] | None = None,
+) -> bool:
+    try:
+        if report_builder is None:
+            from .diagnostics import build_report as report_builder
+        if summary_builder is None:
+            from .diagnostics import summarize_doctor_report as summary_builder
+        report = report_builder(scan_camera=False, input_probe=True)
+        message = _control_preflight_message(summary_builder(report))
+    except Exception as exc:
+        message = (
+            "AirControl не смог выполнить предварительную проверку ввода.\n\n"
+            f"Ошибка: {exc}\n\n"
+            "Продолжить реальное управление всё равно?"
+        )
+
+    if not message:
+        return True
+
+    if ask_yes_no is None:
+        ask_yes_no = messagebox.askyesno
+    if ask_yes_no("AirControl", message):
+        return True
+
+    if status_var is not None:
+        try:
+            status_var.set("Реальное управление не запущено. Откройте диагностику или безопасную тренировку.")
+        except Exception:
+            pass
+    if diagnostics_callback is not None:
+        _call_later(root, diagnostics_callback)
+    return False
+
+
+def _call_later(root, callback: Callable[[], None]) -> None:
+    try:
+        root.after(50, callback)
+    except Exception:
+        callback()
 
 
 def _launch_aircontrol_from_launcher(root, cfg: AppConfig, app_factory=None) -> bool:
