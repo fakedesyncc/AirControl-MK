@@ -74,7 +74,7 @@ product_excludes = [
     "onnxruntime", "av", "PyQt6", "tokenizers", "hf_xet", "ctranslate2",
     "Cython", "pocketsphinx", "pydantic", "pydantic_core", "lxml", "zmq",
     "aiohttp", "fastapi", "uvicorn", "mcp", "starlette", "httpx",
-    "faster_whisper", "whisper", "openai", "groq",
+    "faster_whisper", "whisper", "groq",
 ]
 
 

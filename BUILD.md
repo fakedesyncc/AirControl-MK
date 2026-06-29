@@ -10,14 +10,14 @@ Python, компилятор или консоль: PyInstaller кладёт run
 
 ## Что Получается
 
-| Платформа | Артефакт | Назначение |
-| --- | --- | --- |
-| Windows | `AirControl-Setup.exe` | обычный установщик |
-| Windows | `AirControl-Windows.zip` | portable-проверка |
-| macOS | `AirControl-macOS.zip` | `.app`-сборка |
-| Debian/Ubuntu | `AirControl-Linux-amd64.deb` | установка через пакетный менеджер |
-| Linux | `AirControl-Linux-x86_64.AppImage` | portable-запуск |
-| Linux | `AirControl-Linux.tar.gz` | ручная диагностика |
+| Платформа     | Артефакт                           | Назначение                        |
+| ------------- | ---------------------------------- | --------------------------------- |
+| Windows       | `AirControl-Setup.exe`             | обычный установщик                |
+| Windows       | `AirControl-Windows.zip`           | portable-проверка                 |
+| macOS         | `AirControl-macOS.zip`             | `.app`-сборка                     |
+| Debian/Ubuntu | `AirControl-Linux-amd64.deb`       | установка через пакетный менеджер |
+| Linux         | `AirControl-Linux-x86_64.AppImage` | portable-запуск                   |
+| Linux         | `AirControl-Linux.tar.gz`          | ручная диагностика                |
 
 ## GitHub Actions
 
@@ -34,7 +34,7 @@ Workflows:
 - вручную через `Actions -> Build AirControl -> Run workflow`.
 
 Дополнительно `Build AirControl` запускается при push тега `v*`, например
-`v1.0.0`.
+`v2.2.0`.
 
 Важно: GitHub показывает и запускает workflow как обычный проектный workflow
 только после того, как файл `.github/workflows/build.yml` находится в default
@@ -149,6 +149,27 @@ FLAC-конвертеров SpeechRecognition.
    перелогиниться.
 4. Если жесты видны, но курсор не двигается: проверить Xorg/Wayland и
    `ydotoold`, затем сохранить ZIP-отчёт диагностики.
+
+## Release Branch Flow
+
+Рекомендуемый порядок:
+
+```bash
+git checkout develop
+git checkout -b feature/my-change
+# небольшие осмысленные коммиты
+git checkout develop
+git merge --no-ff feature/my-change
+git checkout -b release/v2.x
+# версия, документация, packaging polish
+git checkout main
+git merge --no-ff release/v2.x
+git tag -a v2.x.0 -m "AirControl v2.x.0"
+git branch -f deploy main
+```
+
+Так в истории остаются видны отдельные продуктовые этапы, release preparation и
+финальная интеграция в `main`.
 
 ## Заметки Для Релиза
 

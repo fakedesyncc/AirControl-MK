@@ -35,4 +35,3 @@ Please report carefully if you find any of these:
 Do not attach raw camera recordings, personal gesture datasets or medical
 information unless it is strictly necessary and intentionally shared. The project
 does not need medical details to fix most accessibility and input issues.
-

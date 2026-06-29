@@ -65,3 +65,10 @@ Good PRs explain:
 - how accidental input is prevented;
 - what checks were run.
 
+## Pull Request Checklist
+
+- [ ] The change is scoped to one feature, fix or documentation topic.
+- [ ] `Safe` and `View` modes still cannot send real input events.
+- [ ] Runtime errors are visible in `doctor`, HUD status or support ZIP.
+- [ ] Public docs are updated when user-facing behavior changes.
+- [ ] Tests or focused manual checks cover the changed behavior.
