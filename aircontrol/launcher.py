@@ -89,6 +89,9 @@ def run_launcher() -> None:
     def run_calibration() -> None:
         _run_calibration_from_launcher(root, AppConfig.load())
 
+    def run_scanning_keyboard() -> None:
+        _run_scanning_keyboard_from_launcher(root, AppConfig.load())
+
     def save_report() -> None:
         from .diagnostics import save_support_bundle
         default_path = os.path.join(os.path.expanduser("~"), "aircontrol-support.zip")
@@ -422,6 +425,7 @@ def run_launcher() -> None:
         "Ассистивное управление: мало движения рукой",
         lambda: launch_app(True, False, assistive_preset="low_motion"),
     )
+    add_button("Экранная клавиатура", run_scanning_keyboard)
     add_button("Калибровка под пользователя", run_calibration)
     add_button("Проверить систему", show_diagnostics)
     add_button("Сохранить отчёт диагностики", save_report)
@@ -685,6 +689,19 @@ def _run_calibration_from_launcher(root, cfg: AppConfig, calibration_runner=None
         if calibration_runner is None:
             from .ui.calibration import run_calibration as calibration_runner
         calibration_runner(cfg)
+        return True
+    except Exception as exc:
+        _show_launcher_startup_error(exc)
+        return False
+
+
+def _run_scanning_keyboard_from_launcher(root, cfg: AppConfig, keyboard_runner=None) -> bool:
+    """Start the on-screen scanning keyboard from a Tk callback."""
+    _destroy_root(root)
+    try:
+        if keyboard_runner is None:
+            from .ui.scanning_keyboard import run_scanning_keyboard as keyboard_runner
+        keyboard_runner(cfg)
         return True
     except Exception as exc:
         _show_launcher_startup_error(exc)

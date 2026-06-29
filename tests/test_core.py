@@ -1803,5 +1803,144 @@ class TestSwipeTraining(unittest.TestCase):
                              "swipe_down")).issubset(set(model.labels)))
 
 
+class TestScanningKeyboard(unittest.TestCase):
+    """Чистый конечный автомат сканирующей клавиатуры (без Tk/камеры)."""
+
+    def _kb(self, **kwargs):
+        from aircontrol.control.scanning import KEY_CHAR, ScanKey, ScanKeyboard
+        # Маленькая детерминированная раскладка: 2 строки по 3 клавиши + выход.
+        from aircontrol.control.scanning import (
+            KEY_BACKSPACE,
+            KEY_ENTER,
+            KEY_EXIT,
+            KEY_SPACE,
+        )
+        layout = [
+            [ScanKey("a"), ScanKey("b"), ScanKey("c")],
+            [ScanKey("d"), ScanKey("e"), ScanKey("f")],
+            [ScanKey("_", KEY_SPACE), ScanKey("<", KEY_BACKSPACE),
+             ScanKey("⏎", KEY_ENTER), ScanKey("x", KEY_EXIT)],
+        ]
+        self.outputs = []
+        self.exited = []
+        kb = ScanKeyboard(
+            layout=layout,
+            on_output=self.outputs.append,
+            on_exit=lambda: self.exited.append(True),
+            **kwargs,
+        )
+        return kb
+
+    def test_default_layout_has_service_keys(self):
+        from aircontrol.control.scanning import (
+            KEY_BACKSPACE,
+            KEY_ENTER,
+            KEY_EXIT,
+            KEY_SPACE,
+            default_layout,
+        )
+        kinds = {key.kind for row in default_layout() for key in row}
+        self.assertTrue({KEY_SPACE, KEY_BACKSPACE, KEY_ENTER, KEY_EXIT}.issubset(kinds))
+
+    def test_starts_in_row_mode(self):
+        from aircontrol.control.scanning import ScanMode
+        kb = self._kb()
+        self.assertIs(kb.mode, ScanMode.ROW)
+        self.assertEqual(kb.index, 0)
+        self.assertTrue(kb.running)
+
+    def test_tick_advances_and_wraps(self):
+        kb = self._kb()
+        self.assertEqual(kb.index, 0)
+        kb.tick(); self.assertEqual(kb.index, 1)
+        kb.tick(); self.assertEqual(kb.index, 2)
+        # 3 строки → следующий tick заворачивает на начало.
+        kb.tick()
+        self.assertEqual(kb.index, 0)
+        self.assertEqual(kb.loops, 1)
+
+    def test_row_select_enters_col_mode(self):
+        from aircontrol.control.scanning import ScanMode
+        kb = self._kb()
+        kb.tick()  # подсвечена строка 1 (d, e, f)
+        out = kb.select()
+        self.assertIsNone(out)               # выбор строки ничего не печатает
+        self.assertIs(kb.mode, ScanMode.COL)
+        self.assertEqual(kb.row, 1)
+        self.assertEqual(kb.index, 0)        # перебор клавиш строки с начала
+
+    def test_col_select_emits_expected_key(self):
+        from aircontrol.control.scanning import KEY_CHAR, ScanMode
+        kb = self._kb()
+        kb.tick()          # строка 1
+        kb.select()        # вход в COL для строки 1 (d, e, f)
+        kb.tick()          # клавиша 'e'
+        out = kb.select()
+        self.assertEqual(len(self.outputs), 1)
+        self.assertEqual(self.outputs[0].kind, KEY_CHAR)
+        self.assertEqual(self.outputs[0].char, "e")
+        self.assertEqual(out.char, "e")
+        # После печати возвращаемся к перебору строк.
+        self.assertIs(kb.mode, ScanMode.ROW)
+        self.assertEqual(kb.index, 0)
+
+    def test_space_backspace_enter_kinds(self):
+        from aircontrol.control.scanning import (
+            KEY_BACKSPACE,
+            KEY_ENTER,
+            KEY_SPACE,
+        )
+        # Строка 2 — служебная: _, <, ⏎, x.
+        for col, kind in ((0, KEY_SPACE), (1, KEY_BACKSPACE), (2, KEY_ENTER)):
+            kb = self._kb()
+            kb.tick(); kb.tick()       # строка 2
+            kb.select()                # COL по служебной строке
+            for _ in range(col):
+                kb.tick()
+            out = kb.select()
+            self.assertEqual(out.kind, kind)
+        # У служебных клавиш char пустой (печатать нечего).
+        self.assertEqual(self.outputs[-1].char, "")
+
+    def test_exit_key_stops_scanning(self):
+        from aircontrol.control.scanning import KEY_EXIT
+        kb = self._kb()
+        kb.tick(); kb.tick()           # служебная строка
+        kb.select()                    # COL
+        for _ in range(3):             # дойти до 'x' (KEY_EXIT)
+            kb.tick()
+        out = kb.select()
+        self.assertEqual(out.kind, KEY_EXIT)
+        self.assertFalse(kb.running)   # сканирование остановлено
+        self.assertEqual(self.exited, [True])
+        # После остановки tick() и select() ничего не делают.
+        kb.tick()
+        self.assertIsNone(kb.select())
+
+    def test_max_loops_stops_when_unattended(self):
+        kb = self._kb(max_loops=1)
+        # 3 строки: после 3 tick'ов завершится первый проход → остановка.
+        kb.tick(); kb.tick(); kb.tick()
+        self.assertEqual(kb.loops, 1)
+        self.assertFalse(kb.running)
+
+    def test_reset_returns_to_start(self):
+        from aircontrol.control.scanning import ScanMode
+        kb = self._kb()
+        kb.tick(); kb.select(); kb.tick()
+        kb.reset()
+        self.assertIs(kb.mode, ScanMode.ROW)
+        self.assertEqual(kb.index, 0)
+        self.assertEqual(kb.loops, 0)
+        self.assertTrue(kb.running)
+
+    def test_empty_layout_rejected(self):
+        from aircontrol.control.scanning import ScanKeyboard
+        with self.assertRaises(ValueError):
+            ScanKeyboard(layout=[])
+        with self.assertRaises(ValueError):
+            ScanKeyboard(layout=[[]])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
