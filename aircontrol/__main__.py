@@ -330,7 +330,7 @@ def main(argv=None):
 
     sub.add_parser("bench", help="бенчмарк фильтров стабилизации").set_defaults(func=cmd_bench)
 
-    sub.add_parser("report", help="сгенерировать графики для диссертации").set_defaults(func=cmd_report)
+    sub.add_parser("report", help="сгенерировать исследовательские графики").set_defaults(func=cmd_report)
 
     p_usability = sub.add_parser("usability", help="записать SUS и NASA-TLX для исследования")
     p_usability.add_argument("--participant", default="P01")

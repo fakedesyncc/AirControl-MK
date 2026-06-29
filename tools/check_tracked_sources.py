@@ -19,7 +19,14 @@ SOURCE_ROOTS = {
     "packaging": ("*.py",),
     "cmd": ("*.go",),
 }
-SOURCE_FILES = ("go.mod",)
+SOURCE_FILES = (
+    "go.mod",
+    "pyproject.toml",
+    "MANIFEST.in",
+    "LICENSE",
+    "NOTICE",
+    "CITATION.cff",
+)
 
 
 def _git_lines(args: list[str]) -> set[str]:

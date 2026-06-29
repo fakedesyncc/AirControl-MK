@@ -40,6 +40,8 @@ for pkg in ("pynput", "SpeechRecognition", "opencv-python", "numpy", "Pillow"):
 # Модель руки — в корень бандла.
 datas += [("hand_landmarker.task", ".")]
 datas += [("packaging/USER_GUIDE_RU.txt", ".")]
+datas += [("LICENSE", ".")]
+datas += [("NOTICE", ".")]
 
 
 def _native_helper_binary():

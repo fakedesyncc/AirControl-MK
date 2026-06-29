@@ -44,6 +44,8 @@ Actions может ничего не собрать.
 ## Локальная Проверка Исходников
 
 ```bash
+python -m pip install --upgrade pip
+pip install -e .
 python tools/check_tracked_sources.py
 go test ./cmd/aircontrol-helper
 go build -trimpath -ldflags="-s -w" -o bin/aircontrol-helper ./cmd/aircontrol-helper
@@ -78,6 +80,20 @@ python tools/smoke_build.py
 dist/
   AirControl/
   AirControl.app/        # только macOS
+```
+
+## Python Package Metadata
+
+Проект содержит `pyproject.toml`, `MANIFEST.in`, `LICENSE`, `NOTICE` и
+`CITATION.cff`. Это нужно для аккуратной установки из исходников, editable-mode,
+академического цитирования и корректного source distribution.
+
+Проверка исходного пакета:
+
+```bash
+python -m build --sdist --wheel
+python -m pip install --force-reinstall dist/aircontrol_assistive-*.whl
+aircontrol doctor --no-camera
 ```
 
 ## Упаковка Вручную

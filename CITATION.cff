@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use AirControl in academic work, please cite the project."
+title: "AirControl: Assistive Hands-Free Computer Control"
+version: 2.2.0
+date-released: 2026-06-29
+repository-code: "https://github.com/fakedesyncc/AirControl-MK"
+license: MIT
+authors:
+  - alias: fakedesyncc
+keywords:
+  - accessibility
+  - assistive technology
+  - computer vision
+  - hand tracking
+  - hands-free input
+  - eye tracking
+  - offline speech recognition

@@ -27,9 +27,12 @@ mkdir -p "$PKG_ROOT/DEBIAN" \
          "$PKG_ROOT/opt/aircontrol" \
          "$PKG_ROOT/usr/bin" \
          "$PKG_ROOT/usr/share/applications" \
+         "$PKG_ROOT/usr/share/doc/aircontrol" \
          "$PKG_ROOT/usr/share/icons/hicolor/scalable/apps"
 
 cp -a "$DIST_DIR" "$PKG_ROOT/opt/aircontrol/AirControl"
+cp "$ROOT/LICENSE" "$PKG_ROOT/usr/share/doc/aircontrol/copyright"
+cp "$ROOT/NOTICE" "$PKG_ROOT/usr/share/doc/aircontrol/NOTICE"
 cp "$ROOT/packaging/linux/aircontrol.svg" \
    "$PKG_ROOT/usr/share/icons/hicolor/scalable/apps/aircontrol.svg"
 ln -s /opt/aircontrol/AirControl/AirControl "$PKG_ROOT/usr/bin/aircontrol"
@@ -53,8 +56,9 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Maintainer: AirControl <support@example.invalid>
+Maintainer: fakedesyncc <117654441+fakedesyncc@users.noreply.github.com>
 Depends: libgl1, libgles2, libegl1, libglib2.0-0, xdotool
+Homepage: https://github.com/fakedesyncc/AirControl-MK
 Description: Assistive hands-free computer control
  AirControl lets people control the computer with a webcam, hand gestures,
  dwell-click and optional voice commands. The package includes the Python
@@ -75,6 +79,8 @@ POSTINST
 
 chmod 0755 "$PKG_ROOT/DEBIAN/postinst"
 chmod 0644 "$PKG_ROOT/DEBIAN/control" \
+           "$PKG_ROOT/usr/share/doc/aircontrol/copyright" \
+           "$PKG_ROOT/usr/share/doc/aircontrol/NOTICE" \
            "$PKG_ROOT/usr/share/applications/aircontrol.desktop" \
            "$PKG_ROOT/usr/share/icons/hicolor/scalable/apps/aircontrol.svg"
 chmod 0755 "$PKG_ROOT/opt/aircontrol/AirControl/AirControl"

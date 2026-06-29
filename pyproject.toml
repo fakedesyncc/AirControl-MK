@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aircontrol-assistive"
+version = "2.2.0"
+description = "Assistive hands-free computer control with webcam hand tracking, dwell-click, voice and gaze workflows."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "fakedesyncc" }]
+keywords = [
+  "accessibility",
+  "assistive-technology",
+  "computer-vision",
+  "hand-tracking",
+  "hands-free",
+  "mediapipe",
+  "vosk",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: MacOS X",
+  "Environment :: Win32 (MS Windows)",
+  "Environment :: X11 Applications",
+  "Intended Audience :: End Users/Desktop",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Science/Research",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Desktop Environment",
+  "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+  "Topic :: Software Development :: User Interfaces",
+]
+dependencies = [
+  "opencv-python>=4.8.0",
+  "mediapipe>=0.10.0",
+  "pillow>=10.0.0",
+  "pynput>=1.7.6",
+  "numpy>=1.24.0",
+  "SpeechRecognition>=3.10.0",
+  "mss>=9.0.0",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+voice = ["pyaudio>=0.2.11", "vosk>=0.3.45"]
+research = ["scikit-learn>=1.3.0", "matplotlib>=3.7.0"]
+windows = [
+  "pycaw>=20230407; sys_platform == 'win32'",
+  "comtypes; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/fakedesyncc/AirControl-MK"
+Repository = "https://github.com/fakedesyncc/AirControl-MK"
+Issues = "https://github.com/fakedesyncc/AirControl-MK/issues"
+Releases = "https://github.com/fakedesyncc/AirControl-MK/releases"
+
+[project.scripts]
+aircontrol = "aircontrol.__main__:main"
+
+[project.gui-scripts]
+aircontrol-launcher = "aircontrol.launcher:run_launcher"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["aircontrol*"]
+
+[tool.setuptools.data-files]
+"share/aircontrol" = [
+  "hand_landmarker.task",
+  "packaging/USER_GUIDE_RU.txt",
+  "packaging/linux/aircontrol.svg",
+]
+"share/applications" = ["packaging/linux/AirControl.desktop"]
