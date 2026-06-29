@@ -459,6 +459,51 @@ class TestCursorBackend(unittest.TestCase):
         self.assertEqual(first.position, (1, 1))
         self.assertNotEqual(second.position, (10, 10))
 
+    class CountingMouse:
+        def __init__(self, pos=(0, 0)):
+            self._pos = pos
+            self.writes = 0
+
+        @property
+        def position(self):
+            return self._pos
+
+        @position.setter
+        def position(self, p):
+            self._pos = p
+            self.writes += 1
+
+    def test_step_stops_writing_once_converged(self):
+        # Перф/корректность: при неизменной цели step() перестаёт дёргать ОС.
+        cfg = AppConfig()
+        m = self.CountingMouse((0, 0))
+        cursor = CursorController(cfg.cursor, cfg.filter, m, (100, 100))
+        cursor.update(FrameGestures(hand_detected=True, cursor_norm=(0.5, 0.5)), 1.0)
+        for _ in range(200):
+            cursor.step()
+        converged = m.writes
+        self.assertLess(converged, 200)            # сошлись и перестали писать
+        for _ in range(50):
+            cursor.step()
+        self.assertEqual(m.writes, converged)      # лишних записей нет
+
+    def test_safe_swap_writes_only_new_backend(self):
+        # Safe ON/OFF: после смены backend старый указатель больше не трогаем
+        # (защита от гонки «Safe ON двигает реальную мышь»).
+        cfg = AppConfig()
+        first = self.CountingMouse((1, 1))
+        second = self.CountingMouse((10, 10))
+        cursor = CursorController(cfg.cursor, cfg.filter, first, (100, 100))
+        fg = FrameGestures(hand_detected=True, cursor_norm=(0.5, 0.5))
+        cursor.update(fg, 1.0)
+        cursor.step()
+        first_writes = first.writes
+        cursor.set_mouse(second)
+        cursor.update(fg, 1.1)
+        cursor.step()
+        self.assertEqual(first.writes, first_writes)   # старый backend не тронут
+        self.assertGreater(second.writes, 0)           # пишем только в новый
+
     def test_dwell_cooldown_prevents_repeat_clicks(self):
         cfg = AppConfig()
         apply_dwell_profile(cfg, "fast")
@@ -1981,6 +2026,48 @@ class TestSwipeLOSO(unittest.TestCase):
         self.assertAlmostEqual(res["chance"], 0.25)
         self.assertGreaterEqual(res["mean_accuracy"], 0.6,
                                 f"LOSO mean acc={res['mean_accuracy']:.3f} ниже 0.6")
+
+
+class TestVoiceCommands(unittest.TestCase):
+    """Голосовые команды: вкладки переключаются Ctrl+Tab на всех ОС (не Cmd+Tab)."""
+
+    class FakeAct:
+        def __init__(self):
+            self.calls = []
+            self.platform = None
+            self.mod = "MOD"
+
+        def hotkey(self, *keys):
+            self.calls.append(tuple(keys))
+
+    def test_tab_navigation_uses_ctrl_tab(self):
+        from aircontrol.voice.commands import CommandProcessor
+        from aircontrol.control.input_backend import Key
+        act = self.FakeAct()
+        cp = CommandProcessor(act)
+        self.assertTrue(cp.process("следующая вкладка"))
+        self.assertEqual(act.calls[-1], (Key.ctrl, Key.tab))
+        act.calls.clear()
+        self.assertTrue(cp.process("предыдущая вкладка"))
+        self.assertEqual(act.calls[-1], (Key.ctrl, Key.shift, Key.tab))
+
+
+class TestStartupGuards(unittest.TestCase):
+    """Старт без сырых трейсбеков: понятные ошибки камеры/модели."""
+
+    def test_hand_tracker_missing_model_raises_clear_error(self):
+        import sys as _sys
+        from aircontrol.config import TrackingConfig
+        from aircontrol.tracking.hand_tracker import HandTracker
+        cfg = TrackingConfig(model_path="/nonexistent/hand_landmarker.task")
+        mp_before = "mediapipe" in _sys.modules
+        with self.assertRaises(RuntimeError) as ctx:
+            HandTracker(cfg)
+        self.assertIn("hand_landmarker", str(ctx.exception))
+        # Проверка наличия модели — ДО импорта mediapipe (fail-fast): этот вызов
+        # не должен подтянуть mediapipe, если его ещё не было.
+        if not mp_before:
+            self.assertNotIn("mediapipe", _sys.modules)
 
 
 if __name__ == "__main__":
