@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aircontrol-assistive"
-version = "2.2.0"
+version = "2.3.0"
 description = "Assistive hands-free computer control with webcam hand tracking, dwell-click, voice and gaze workflows."
 readme = "README.md"
 requires-python = ">=3.12"
