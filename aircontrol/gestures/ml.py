@@ -19,6 +19,19 @@ import numpy as np
 
 from .features import POSE_LABELS, extract_features
 
+
+def _ensure_parent_dir(path: str) -> None:
+    """Создаёт родительский каталог для ``path``, если он указан.
+
+    ``os.path.dirname`` для голого имени файла (например ``"model"``) возвращает
+    пустую строку, на которой ``os.makedirs`` падает с ``FileNotFoundError``.
+    Здесь это аккуратно обходится, чтобы сохранение по относительному пути в
+    текущем каталоге не ломалось.
+    """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
 try:
     from sklearn.neural_network import MLPClassifier  # type: ignore
     from sklearn.ensemble import RandomForestClassifier  # type: ignore
@@ -44,17 +57,27 @@ class GestureDataset:
         return dict(Counter(self.y))
 
     def save(self, path: str) -> None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _ensure_parent_dir(path)
         np.savez(path, X=np.array(self.X, dtype=np.float32),
                  y=np.array(self.y))
 
     @classmethod
     def load(cls, path: str) -> "GestureDataset":
+        """Загружает датасет; на отсутствующем/битом файле возвращает пустой.
+
+        Возврат пустого ``GestureDataset`` (а не исключение) позволяет вызывающему
+        коду единообразно проверять ``len(ds)`` — например, ``train_from_dataset``
+        затем выдаёт понятную ошибку «слишком мало примеров».
+        """
         ds = cls()
         if os.path.exists(path):
-            data = np.load(path, allow_pickle=True)
-            ds.X = list(data["X"])
-            ds.y = list(data["y"])
+            try:
+                data = np.load(path, allow_pickle=True)
+                ds.X = list(data["X"])
+                ds.y = list(data["y"])
+            except Exception as exc:
+                print(f"[ml] Не удалось прочитать датасет ({exc}) — пустой набор")
+                ds.X, ds.y = [], []
         return ds
 
     def __len__(self) -> int:
@@ -108,6 +131,25 @@ class MLPoseClassifier:
         """Предсказание по готовому вектору признаков (для оценки на выборке)."""
         return self._predict_vec(feat)[0]
 
+    def predict_confident(self, landmarks: np.ndarray,
+                          min_confidence: float = 0.6) -> Tuple[str, float]:
+        """Предсказание с порогом уверенности (опциональное гейтирование).
+
+        Поведение-сохраняющая надстройка над :meth:`predict`: сначала вызывает
+        обычный :meth:`predict`, и если уверенность ниже ``min_confidence``,
+        возвращает ``("none", conf)`` вместо предсказанной метки. Это полезно,
+        когда движок предпочитает «промолчать», а не сработать на неуверенной
+        классификации. Сам :meth:`predict` при этом не меняется — старый код,
+        который его вызывает, работает как прежде.
+
+        ``min_confidence`` ожидается в диапазоне [0, 1]; уверенность kNN — это
+        доля голосов соседей, у sklearn — максимум predict_proba.
+        """
+        label, conf = self.predict(landmarks)
+        if label == "none" or conf < min_confidence:
+            return "none", conf
+        return label, conf
+
     def _predict_vec(self, feat: np.ndarray) -> Tuple[str, float]:
         xn = (feat - self._mean) / self._std
 
@@ -125,7 +167,7 @@ class MLPoseClassifier:
     # ---- сохранение/загрузка (только kNN; sklearn — через joblib опц.) ------
 
     def save(self, path: str) -> None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _ensure_parent_dir(path)
         if self.backend == "knn":
             np.savez(path, backend="knn", k=self.k, X=self._X, y=self._y,
                      mean=self._mean, std=self._std, labels=np.array(self._labels))
@@ -173,6 +215,14 @@ def train_from_dataset(dataset_path: str, model_path: str, backend: str = "knn",
 
     X = np.array(ds.X, dtype=np.float32)
     y = np.array(ds.y)
+
+    n_classes = len(set(y.tolist()))
+    if n_classes < 2:
+        # Один класс нельзя ни обучить осмысленно (нечего различать), ни оценить
+        # (нет матрицы ошибок). Сообщаем явно, а не молча сваливаемся в kNN.
+        only = sorted(set(y.tolist()))
+        raise ValueError(
+            f"Нужно минимум 2 класса для обучения, получен 1: {only}")
 
     metrics = {"backend": backend, "n_samples": len(ds), "class_counts": ds.counts()}
 

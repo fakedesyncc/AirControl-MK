@@ -45,7 +45,7 @@ def build_report(scan_camera: bool = True, camera_limit: int | None = None,
     _append_module(lines, "NumPy", "numpy")
     _append_module(lines, "Pillow", "PIL")
     _append_module(lines, "Pynput", "pynput")
-    _append_voice(lines, recommendations)
+    _append_voice(lines, recommendations, cfg)
     _append_tk(lines, recommendations)
     _append_model(lines, cfg, recommendations)
     _append_runtime_config(lines, cfg)
@@ -663,8 +663,9 @@ def _append_tk(lines: List[str], recommendations: List[str]) -> None:
         recommendations.append("Установите Tkinter: sudo apt install python3-tk")
 
 
-def _append_voice(lines: List[str], recommendations: List[str]) -> None:
-    cfg = AppConfig.load()
+def _append_voice(lines: List[str], recommendations: List[str], cfg=None) -> None:
+    if cfg is None:                       # переиспользуем уже загруженный конфиг
+        cfg = AppConfig.load()
     sr_ok = importlib.util.find_spec("speech_recognition") is not None
     pa_ok = importlib.util.find_spec("pyaudio") is not None
     vosk_ok = importlib.util.find_spec("vosk") is not None
@@ -715,6 +716,20 @@ def _append_model(lines: List[str], cfg: AppConfig, recommendations: List[str]) 
     lines.append(f"Hand model: {'OK' if ok else 'FAIL'} ({model})")
     if not ok:
         recommendations.append("Проверьте, что hand_landmarker.task лежит рядом с проектом или включён в бандл.")
+
+    # Модель лица для наведения взглядом (опциональна). Делаем её отсутствие
+    # ВИДИМЫМ, чтобы gaze не отключался молча (нарушение принципа «без тихих фолбэков»).
+    face_model = cfg.fusion.gaze.model_path
+    face_ok = os.path.exists(face_model)
+    if cfg.fusion.gaze_enabled:
+        lines.append(f"Face model (gaze): {'OK' if face_ok else 'MISSING'} ({face_model})")
+        if not face_ok:
+            recommendations.append(
+                "Наведение взглядом ВКЛЮЧЕНО, но модель face_landmarker.task не найдена — "
+                "gaze работать не будет. Положите модель по пути fusion.gaze.model_path "
+                "или отключите gaze.")
+    else:
+        lines.append(f"Face model (gaze): {'OK' if face_ok else 'n/a'} (gaze off)")
 
 
 def _append_runtime_config(lines: List[str], cfg: AppConfig) -> None:

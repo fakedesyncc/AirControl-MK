@@ -42,10 +42,11 @@ class CommandProcessor:
 
         # ---- Вкладки ----
         if any(w in t for w in ("следующая вкладка", "вкладка вперёд")):
-            self.act.hotkey(self.mod, Key.tab) if self.is_mac else self.act.hotkey(self.mod, Key.tab)
-            return True
+            # Ctrl+Tab переключает вкладку в браузерах на всех ОС (на macOS
+            # Cmd+Tab — это переключатель приложений, а не вкладок).
+            self.act.hotkey(Key.ctrl, Key.tab); return True
         if any(w in t for w in ("предыдущая вкладка", "вкладка назад")):
-            self.act.hotkey(self.mod, Key.shift, Key.tab); return True
+            self.act.hotkey(Key.ctrl, Key.shift, Key.tab); return True
         if any(w in t for w in ("закрой вкладку", "закрыть вкладку")):
             self.act.hotkey(self.mod, "w"); return True
         if any(w in t for w in ("новая вкладка", "новый таб")):

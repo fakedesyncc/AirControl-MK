@@ -124,8 +124,7 @@ class GazeEstimator:
             import numpy as np
             from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
 
-            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            rgb = np.ascontiguousarray(rgb)
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)  # уже C-contiguous
             mp_image = Image(image_format=ImageFormat.SRGB, data=rgb)
             if self._video:
                 ts = max(self._last_ts_ms + 1, int(time.monotonic() * 1000))

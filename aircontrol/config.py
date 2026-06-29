@@ -388,7 +388,7 @@ class AppConfig:
             return cfg
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return _repair_runtime_paths(_from_dict(cls, data))
+        return _repair_runtime_paths(_validate(_from_dict(cls, data)))
 
 
 def _from_dict(cls, data: Dict[str, Any]):
@@ -406,6 +406,66 @@ def _from_dict(cls, data: Dict[str, Any]):
         else:
             kwargs[f.name] = value
     return cls(**kwargs)
+
+
+# Допустимые значения для строковых полей-перечислений. Конфиг — это
+# персистентный JSON, переживающий смену версий приложения и ручную правку,
+# поэтому «чужое» значение (опечатка, старый/будущий вариант, мусор) не должно
+# ни уронить приложение, ни тихо включить сломанное поведение. При недопустимом
+# значении возвращаемся к безопасному дефолту с печатью заметки в stderr.
+_ENUM_FIELDS = {
+    "tracking.running_mode": ("video", "image"),
+    "filter.type": ("none", "ema", "one_euro", "kalman"),
+    "cursor.dwell_profile": ("fast", "normal", "steady", "custom"),
+    "gestures.recognizer": ("heuristic", "ml"),
+    "gestures.swipe_backend": ("heuristic", "template", "lstm", "tcn"),
+    "voice.engine": ("google", "vosk"),
+    "fusion.gaze_mode": ("assist", "cursor"),
+    "gaze.running_mode": ("video", "image"),
+    "start_mode": ("view", "control"),
+}
+
+
+def _validate(cfg: AppConfig) -> AppConfig:
+    """Нормализует строковые поля-перечисления, возвращая недопустимые значения
+    к безопасному дефолту.
+
+    Вызывается из AppConfig.load после сборки dataclass-а. Корректный конфиг
+    проходит проверку без изменений (поведение байт-в-байт идентично). Каждое
+    исправление сопровождается заметкой в stderr, чтобы порча файла не оставалась
+    незамеченной."""
+    defaults = AppConfig()
+    _clamp_enum(cfg.tracking, "running_mode", "tracking.running_mode", defaults.tracking)
+    _clamp_enum(cfg.filter, "type", "filter.type", defaults.filter)
+    _clamp_enum(cfg.cursor, "dwell_profile", "cursor.dwell_profile", defaults.cursor)
+    _clamp_enum(cfg.gestures, "recognizer", "gestures.recognizer", defaults.gestures)
+    _clamp_enum(cfg.gestures, "swipe_backend", "gestures.swipe_backend", defaults.gestures)
+    _clamp_enum(cfg.voice, "engine", "voice.engine", defaults.voice)
+    _clamp_enum(cfg.fusion, "gaze_mode", "fusion.gaze_mode", defaults.fusion)
+    _clamp_enum(cfg.fusion.gaze, "running_mode", "gaze.running_mode", defaults.fusion.gaze)
+    _clamp_enum(cfg, "start_mode", "start_mode", defaults)
+    return cfg
+
+
+def _clamp_enum(section: Any, attr: str, key: str, default_section: Any) -> None:
+    """Если section.attr не входит в допустимый набор — заменить на дефолт.
+
+    section          — dataclass-секция (или сам AppConfig) с проверяемым полем;
+    attr             — имя атрибута внутри секции;
+    key              — ключ в _ENUM_FIELDS (для набора допустимых значений);
+    default_section  — соответствующая секция эталонного AppConfig (источник
+                       безопасного значения по умолчанию)."""
+    allowed = _ENUM_FIELDS[key]
+    value = getattr(section, attr)
+    if value in allowed:
+        return
+    fallback = getattr(default_section, attr)
+    print(
+        f"[config] недопустимое значение {key}={value!r}; "
+        f"возвращено к безопасному значению {fallback!r}",
+        file=sys.stderr,
+    )
+    setattr(section, attr, fallback)
 
 
 def _repair_runtime_paths(cfg: AppConfig) -> AppConfig:

@@ -113,11 +113,18 @@ class TemporalSwipeSequenceModel:
         bi/bf/bo/bg [hidden], W [hidden, classes], b.
     """
 
+    _META_KEYS = {"backend", "labels", "sequence_length"}
+
     def __init__(self, backend: str, labels: List[str], sequence_length: int, arrays):
         self.backend = backend
         self.labels = labels
         self.sequence_length = max(4, int(sequence_length))
-        self.arrays = arrays
+        # Кастуем веса в float32 ОДИН раз при загрузке (а не на каждом предсказании),
+        # исключая мета-ключи (labels/backend — строковые, их кастовать нельзя).
+        items = ((k, arrays[k]) for k in arrays.files) if hasattr(arrays, "files") \
+            else arrays.items()
+        self.arrays = {k: np.asarray(v, dtype=np.float32)
+                       for k, v in items if k not in self._META_KEYS}
         self.name = backend
 
     @classmethod
@@ -155,22 +162,26 @@ class TemporalSwipeSequenceModel:
         return label, float(proba[idx])
 
     def _predict_tcn(self, seq: np.ndarray) -> np.ndarray:
-        conv_w = self.arrays["conv_w"].astype(np.float32)
-        conv_b = self.arrays["conv_b"].astype(np.float32)
+        conv_w = self.arrays["conv_w"]
+        conv_b = self.arrays["conv_b"]
         kernel, in_ch, out_ch = conv_w.shape
         if seq.shape[1] != in_ch:
             raise ValueError(f"TCN input channels mismatch: {seq.shape[1]} != {in_ch}")
 
+        # Свёртка как сумма K сдвинутых полнодлинных matmul вместо двойного python-
+        # цикла O(T*K): тот же zero-padding по краям, но без интерпретаторного оверхеда.
         pad = kernel // 2
-        out = np.zeros((seq.shape[0], out_ch), dtype=np.float32)
-        for t in range(seq.shape[0]):
-            for k in range(kernel):
-                src = t + k - pad
-                if 0 <= src < seq.shape[0]:
-                    out[t] += seq[src] @ conv_w[k]
+        T = seq.shape[0]
+        out = np.zeros((T, out_ch), dtype=np.float32)
+        for k in range(kernel):
+            shift = k - pad
+            if shift >= 0:
+                out[: T - shift] += seq[shift:] @ conv_w[k]
+            else:
+                out[-shift:] += seq[: T + shift] @ conv_w[k]
         out = np.maximum(out + conv_b, 0.0)
         pooled = out.mean(axis=0)
-        return pooled @ self.arrays["W"].astype(np.float32) + self.arrays["b"].astype(np.float32)
+        return pooled @ self.arrays["W"] + self.arrays["b"]
 
     def _predict_lstm(self, seq: np.ndarray) -> np.ndarray:
         hidden = int(self.arrays["bi"].shape[0])
@@ -187,7 +198,7 @@ class TemporalSwipeSequenceModel:
             g = np.tanh(x @ self.arrays["Wg"] + h @ self.arrays["Ug"] + self.arrays["bg"])
             c = f * c + i * g
             h = o * np.tanh(c)
-        return h @ self.arrays["W"].astype(np.float32) + self.arrays["b"].astype(np.float32)
+        return h @ self.arrays["W"] + self.arrays["b"]
 
 
 class DynamicGestureRecognizer:

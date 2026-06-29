@@ -5,18 +5,19 @@
 плюс признак «правая/левая». Остальной код не зависит от MediaPipe напрямую.
 """
 
+import os
 import time
 from dataclasses import dataclass
 from typing import List, Optional
 
 import cv2
 import numpy as np
-from mediapipe.tasks.python.core.base_options import BaseOptions
-from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
-from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
-from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarker, HandLandmarkerOptions
 
 from ..config import TrackingConfig
+
+# MediaPipe импортируется ЛЕНИВО (внутри HandTracker), а не на уровне модуля:
+# его импорт тяжёлый и медленный, и из-за него раньше подвисали тест-сьют и
+# не-камерные команды (doctor/train/loso), которым трекер не нужен.
 
 # Индексы ключевых точек руки в модели MediaPipe (для читаемости в коде жестов).
 WRIST = 0
@@ -39,6 +40,20 @@ class HandResult:
 
 class HandTracker:
     def __init__(self, cfg: TrackingConfig):
+        # Fail-fast ДО тяжёлого импорта mediapipe: если модели нет — нет смысла
+        # грузить mediapipe, чтобы это выяснить.
+        if not cfg.model_path or not os.path.exists(cfg.model_path):
+            raise RuntimeError(
+                "Модель руки hand_landmarker.task не найдена: "
+                f"{cfg.model_path or '(путь не задан)'}.\n"
+                "Переустановите AirControl (в сборке модель отсутствует) или "
+                "запустите python -m aircontrol doctor для проверки.")
+
+        from mediapipe.tasks.python.core.base_options import BaseOptions
+        from mediapipe.tasks.python.vision.core.vision_task_running_mode import VisionTaskRunningMode
+        from mediapipe.tasks.python.vision.hand_landmarker import (
+            HandLandmarker, HandLandmarkerOptions)
+
         delegate = (BaseOptions.Delegate.GPU if cfg.delegate.upper() == "GPU"
                     else BaseOptions.Delegate.CPU)
         base_options = BaseOptions(model_asset_path=cfg.model_path, delegate=delegate)
@@ -67,8 +82,10 @@ class HandTracker:
 
     def detect(self, frame_bgr) -> List[HandResult]:
         """Детектирует руки на BGR-кадре OpenCV."""
+        from mediapipe.tasks.python.vision.core.image import Image, ImageFormat
+
+        # cv2.cvtColor уже возвращает C-contiguous буфер — лишний ascontiguousarray не нужен.
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        rgb = np.ascontiguousarray(rgb)
         mp_image = Image(image_format=ImageFormat.SRGB, data=rgb)
         if self._video:
             # Таймстемп должен строго возрастать (мс).

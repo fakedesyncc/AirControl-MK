@@ -71,7 +71,13 @@ def cmd_run(args):
         cfg.start_mode = args.mode
     if getattr(args, "dry_input", False):
         cfg.input.dry_run = True
-    AirControlApp(cfg).run()
+    try:
+        AirControlApp(cfg).run()
+    except RuntimeError as exc:
+        # Понятное сообщение вместо сырого трейсбека (камера/модель недоступны и т.п.).
+        print(f"\n[run] AirControl не запустился:\n{exc}\n", file=sys.stderr)
+        print("Проверьте систему: python -m aircontrol doctor", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def cmd_assistive(args):

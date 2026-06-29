@@ -162,6 +162,10 @@ class KalmanFilter(Filter):
         self.H = np.array([[1, 0, 0, 0],   # матрица наблюдения
                            [0, 1, 0, 0]], dtype=float)
         self.R = np.eye(2) * self.r
+        # Предпосчитанные константы (не аллоцируем их каждый кадр на горячем пути).
+        self.Q = np.eye(4) * self.q        # шум процесса — постоянный
+        self.I4 = np.eye(4)                 # единичная для коррекции ковариации
+        self.F = np.eye(4)                  # шаблон CV-модели; меняем только dt
         self._last_time = None
         self._initialized = False
 
@@ -176,23 +180,26 @@ class KalmanFilter(Filter):
             self._initialized = True
             return x, y
 
-        F = np.array([[1, 0, dt, 0],
-                      [0, 1, 0, dt],
-                      [0, 0, 1, 0],
-                      [0, 0, 0, 1]], dtype=float)
-        Q = np.eye(4) * self.q
+        # Обновляем только зависящие от dt элементы шаблона F (без пересоздания).
+        self.F[0, 2] = dt
+        self.F[1, 3] = dt
 
         # Прогноз
-        self.x = F @ self.x
-        self.P = F @ self.P @ F.T + Q
+        self.x = self.F @ self.x
+        self.P = self.F @ self.P @ self.F.T + self.Q
 
         # Коррекция по измерению
         z = np.array([[x], [y]])
         y_res = z - self.H @ self.x
         S = self.H @ self.P @ self.H.T + self.R
-        K = self.P @ self.H.T @ np.linalg.inv(S)
+        # Closed-form инверсия 2x2 (S положительно определена при R = r*I, r>0):
+        # дешевле и без общего LU-решателя на горячем пути.
+        a, b = S[0, 0], S[0, 1]
+        c, d = S[1, 0], S[1, 1]
+        Sinv = np.array([[d, -b], [-c, a]]) / (a * d - b * c)
+        K = self.P @ self.H.T @ Sinv
         self.x = self.x + K @ y_res
-        self.P = (np.eye(4) - K @ self.H) @ self.P
+        self.P = (self.I4 - K @ self.H) @ self.P
 
         return float(self.x[0, 0]), float(self.x[1, 0])
 
