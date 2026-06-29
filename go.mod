@@ -1,3 +1,3 @@
-module github.com/fakedesyncc/ml-vision
+module github.com/fakedesyncc/aircontrol
 
 go 1.22

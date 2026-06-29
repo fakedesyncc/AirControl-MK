@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml">
-    <img alt="Build" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml/badge.svg">
+  <a href="https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml">
+    <img alt="Build" src="https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml/badge.svg">
   </a>
-  <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml/badge.svg">
   </a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-2f3340">
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fakedesyncc/ML-vision/releases/latest"><b>⬇ Скачать релиз</b></a>
+  <a href="https://github.com/fakedesyncc/AirControl/releases/latest"><b>⬇ Скачать релиз</b></a>
   &nbsp;·&nbsp;
   <a href="#первый-запуск">Первый запуск</a>
   &nbsp;·&nbsp;
@@ -115,7 +115,7 @@ flowchart LR
 ## Скачать
 
 Готовые сборки публикуются на странице релизов:
-**[github.com/fakedesyncc/ML-vision/releases/latest](https://github.com/fakedesyncc/ML-vision/releases/latest)**.
+**[github.com/fakedesyncc/AirControl/releases/latest](https://github.com/fakedesyncc/AirControl/releases/latest)**.
 Выберите артефакт под свою ОС:
 
 | ОС | Файл | Для кого |
@@ -351,9 +351,9 @@ python tools/smoke_build.py
 ```
 
 PyInstaller не кросс-компилирует. Полные сборки под Windows, macOS и Linux
-делает workflow [Build AirControl](https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml).
+делает workflow [Build AirControl](https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml).
 Быстрая проверка исходников вынесена в workflow
-[CI](https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml).
+[CI](https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml).
 
 ## Структура
 
