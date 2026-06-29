@@ -14,9 +14,29 @@ class Camera:
         index = cfg.index if cfg.index is not None else self._auto_index()
         self.cap = self._open_capture(index)
         if not self.cap.isOpened():
-            raise RuntimeError(f"Не удалось открыть камеру (индекс {index})")
+            raise RuntimeError(self._open_failure_message(index))
         self.index = index
         self._last_reopen = 0.0
+
+    def _open_failure_message(self, index: int) -> str:
+        """Понятное, действенное сообщение вместо сырого трейсбека на старте."""
+        lines = [f"Не удалось открыть камеру (индекс {index}).", "",
+                 "Что проверить:"]
+        if sys.platform == "darwin":
+            lines.append("- Разрешите доступ к камере: Системные настройки → "
+                         "Конфиденциальность и безопасность → Камера.")
+        elif sys.platform.startswith("win"):
+            lines.append("- Разрешите доступ к камере: Параметры → "
+                         "Конфиденциальность → Камера.")
+        else:
+            lines.append("- Добавьте пользователя в группу video и перелогиньтесь; "
+                         "проверьте /dev/video*.")
+        lines += [
+            "- Закройте другие приложения, которые могут занимать камеру "
+            "(Zoom, браузер, FaceTime).",
+            "- Подключите камеру и запустите проверку: python -m aircontrol doctor.",
+        ]
+        return "\n".join(lines)
 
     def _backend_api(self) -> int:
         backend = (getattr(self.cfg, "backend", "auto") or "auto").lower()

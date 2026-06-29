@@ -49,6 +49,10 @@ class ActionExecutor:
         os.makedirs(screenshot_dir, exist_ok=True)
         self.on_toggle_record = on_toggle_record
         self._left_down = False
+        # Множество реально зажатых клавиш (в первую очередь модификаторов):
+        # нужно, чтобы release_all() мог гарантированно их отпустить, даже если
+        # комбо прервалось исключением между press и release.
+        self._held_keys = set()
         self.last_action = ""
         self.last_action_time = 0.0
         self.last_input_error = ""
@@ -131,6 +135,7 @@ class ActionExecutor:
             for k in keys:
                 self.keyboard.press(k)
                 pressed.append(k)
+                self._held_keys.add(k)
         except Exception as exc:
             self._record_input_error("hotkey", exc)
         finally:
@@ -139,6 +144,8 @@ class ActionExecutor:
                     self.keyboard.release(k)
                 except Exception as exc:
                     self._record_input_error("hotkey.release", exc)
+                finally:
+                    self._held_keys.discard(k)
 
     def key_tap(self, key) -> None:
         if self._skip_input("key_tap"):
@@ -235,6 +242,7 @@ class ActionExecutor:
         try:
             self.keyboard.press(self.mod)
             pressed = True
+            self._held_keys.add(self.mod)
             self.mouse.scroll(0, steps)
         except Exception as exc:
             self._record_input_error("zoom", exc)
@@ -244,6 +252,8 @@ class ActionExecutor:
                     self.keyboard.release(self.mod)
                 except Exception as exc:
                     self._record_input_error("zoom.release", exc)
+                finally:
+                    self._held_keys.discard(self.mod)
 
     def nav_back(self) -> None:
         if sys.platform == "darwin":
@@ -304,6 +314,68 @@ class ActionExecutor:
         "zoom_out":     lambda s: s.zoom(-1),
     }
 
+    def _modifier_keys(self) -> list:
+        """Известные клавиши-модификаторы для безусловного отпускания.
+
+        Берём все варианты, которые поддерживает текущий бэкенд (pynput или
+        строковый fallback): Ctrl/Cmd/Shift/Alt и их левые/правые версии.
+        Отсутствующие у бэкенда имена молча пропускаем.
+        """
+        names = (
+            "ctrl", "ctrl_l", "ctrl_r",
+            "cmd", "cmd_l", "cmd_r",
+            "shift", "shift_l", "shift_r",
+            "alt", "alt_l", "alt_r", "alt_gr",
+        )
+        mods = []
+        for name in names:
+            key = getattr(Key, name, None)
+            if key is not None and key not in mods:
+                mods.append(key)
+        return mods
+
     def release_all(self) -> None:
-        """Подстраховка при выходе/смене режима."""
-        self.left_up()
+        """Подстраховка при выходе/смене режима.
+
+        Гарантированно отпускает всё, что исполнитель мог удержать: кнопки мыши
+        и любые клавиши-модификаторы. Каждое отпускание изолировано в своём
+        try/except, поэтому единичный сбой бэкенда не мешает отпустить остальное.
+        Метод идемпотентен (безопасно вызывать дважды) и никогда не бросает
+        исключение — это критично при аварийном завершении/смене режима, чтобы
+        не оставить ОС в состоянии «залипшего» модификатора или зажатой кнопки.
+        """
+        try:
+            # 1. Левая кнопка мыши: учтённое drag-состояние.
+            try:
+                self.left_up()
+            except Exception as exc:
+                self._record_input_error("release_all.left_up", exc)
+
+            # 2. Прочие кнопки мыши на всякий случай (правая/средняя/левая):
+            #    обычно они только кликаются, но если бэкенд их удержал —
+            #    отпускаем по отдельности, не полагаясь на учёт состояния.
+            if not self.dry_run:
+                for name in ("left", "right", "middle"):
+                    button = getattr(Button, name, None)
+                    if button is None:
+                        continue
+                    try:
+                        self.mouse.release(button)
+                    except Exception as exc:
+                        self._record_input_error(f"release_all.mouse.{name}", exc)
+            self._left_down = False
+
+            # 3. Клавиши-модификаторы: сначала всё, что мы реально зажимали,
+            #    затем полный известный набор как страховка от потери учёта.
+            if not self.dry_run:
+                keys = list(self._held_keys) + [
+                    k for k in self._modifier_keys() if k not in self._held_keys
+                ]
+                for key in keys:
+                    try:
+                        self.keyboard.release(key)
+                    except Exception as exc:
+                        self._record_input_error("release_all.key", exc)
+            self._held_keys.clear()
+        except Exception as exc:  # последний рубеж: release_all не должен падать.
+            self._record_input_error("release_all", exc)

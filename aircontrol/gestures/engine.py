@@ -64,6 +64,9 @@ class _PinchFSM:
     def reset(self):
         self.pinched = False
         self.ignore_release = False
+        # Сбрасываем таймер тапа: иначе после комбо-жеста (скриншот/запись) стэйл
+        # last_down_time может дать ложный double-click на следующем щипке.
+        self.last_down_time = 0.0
 
 
 class GestureEngine:
@@ -149,11 +152,12 @@ class GestureEngine:
         pose, conf = self._stabilize(pose, conf)
         out.pose, out.pose_confidence = pose, conf
 
-        # Соотношения щипков (для логики и HUD).
-        r_index = F.pinch_ratio(lm, INDEX_TIP)
-        r_middle = F.pinch_ratio(lm, MIDDLE_TIP)
-        r_ring = F.pinch_ratio(lm, RING_TIP)
-        r_pinky = F.pinch_ratio(lm, PINKY_TIP)
+        # Соотношения щипков (для логики и HUD). palm считаем один раз на кадр.
+        palm = F.palm_size(lm)
+        r_index = F.pinch_ratio(lm, INDEX_TIP, palm)
+        r_middle = F.pinch_ratio(lm, MIDDLE_TIP, palm)
+        r_ring = F.pinch_ratio(lm, RING_TIP, palm)
+        r_pinky = F.pinch_ratio(lm, PINKY_TIP, palm)
         out.pinch_ratios = {"index": r_index, "middle": r_middle,
                             "ring": r_ring, "pinky": r_pinky}
 

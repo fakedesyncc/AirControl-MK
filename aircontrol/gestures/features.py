@@ -38,18 +38,29 @@ def palm_center(landmarks: np.ndarray) -> tuple:
     return cx, cy
 
 
-def finger_extended(landmarks: np.ndarray, tip_idx: int, ratio: float = 1.6) -> bool:
-    """Палец вытянут, если кончик далеко от запястья (в долях размера ладони)."""
-    return distance(landmarks[tip_idx], landmarks[WRIST]) > palm_size(landmarks) * ratio
+def finger_extended(landmarks: np.ndarray, tip_idx: int, ratio: float = 1.6,
+                    palm: float = None) -> bool:
+    """Палец вытянут, если кончик далеко от запястья (в долях размера ладони).
+
+    palm — заранее посчитанный palm_size(): передайте его, чтобы не пересчитывать
+    один и тот же масштаб руки много раз за кадр (горячий путь)."""
+    if palm is None:
+        palm = palm_size(landmarks)
+    return distance(landmarks[tip_idx], landmarks[WRIST]) > palm * ratio
 
 
-def finger_folded(landmarks: np.ndarray, tip_idx: int, ratio: float = 1.3) -> bool:
-    return distance(landmarks[tip_idx], landmarks[WRIST]) < palm_size(landmarks) * ratio
+def finger_folded(landmarks: np.ndarray, tip_idx: int, ratio: float = 1.3,
+                  palm: float = None) -> bool:
+    if palm is None:
+        palm = palm_size(landmarks)
+    return distance(landmarks[tip_idx], landmarks[WRIST]) < palm * ratio
 
 
-def pinch_ratio(landmarks: np.ndarray, tip_idx: int) -> float:
+def pinch_ratio(landmarks: np.ndarray, tip_idx: int, palm: float = None) -> float:
     """Нормализованное расстояние большой↔палец (для детекции щипка)."""
-    return distance(landmarks[THUMB_TIP], landmarks[tip_idx]) / palm_size(landmarks)
+    if palm is None:
+        palm = palm_size(landmarks)
+    return distance(landmarks[THUMB_TIP], landmarks[tip_idx]) / palm
 
 
 def extract_features(landmarks: np.ndarray) -> np.ndarray:

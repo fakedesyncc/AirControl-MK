@@ -111,6 +111,9 @@ class AirControlApp:
         self.shell.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(self.shell, highlightthickness=0, bg="black", takefocus=True)
         self.canvas.pack(fill=tk.BOTH, expand=True)
+        # Один переиспользуемый image-элемент: обновляем его кадром каждый тик
+        # вместо delete("all")+create_image (меньше churn в Tk на ~30 Гц).
+        self._canvas_img_id = self.canvas.create_image(0, 0, anchor=tk.NW)
 
         self.screen_w = self.root.winfo_screenwidth()
         self.screen_h = self.root.winfo_screenheight()
@@ -166,6 +169,9 @@ class AirControlApp:
         self._last_hand_seen_at = 0.0
         self._mode_started_at = time.time()
         self._started_at = time.time()
+        # Монитор здоровья камеры: ловит пропажу потока кадров посреди сессии,
+        # просит бэкофф (без busy-loop) и поднимает статус для пользователя.
+        self._camera_health = CameraHealthMonitor()
 
         self._setup_window_drag()
         self._setup_controls()
@@ -412,6 +418,7 @@ class AirControlApp:
             last_frame_age=seconds_since_frame,
             hand_detected=self._hand_detected,
             mode_age=round(now - self._mode_started_at, 2),
+            camera_lost=self._camera_health.lost,
         )
         return {
             "mode": self.mode,
@@ -438,6 +445,8 @@ class AirControlApp:
             "hand_detected": self._hand_detected,
             "seconds_since_hand": seconds_since_hand,
             "seconds_since_frame": seconds_since_frame,
+            "camera_lost": self._camera_health.lost,
+            "camera_read_failures": self._camera_health.consecutive_failures,
             "input_status": input_status,
             "health_lines": health_lines,
             "auto_tuned": self._auto_tuned,
@@ -542,8 +551,14 @@ class AirControlApp:
             try:
                 ok, frame = self.camera.read()
                 if not ok:
-                    time.sleep(0.005)
+                    # Камера отдала пустой кадр: копим неудачу, спим запрошенный
+                    # бэкофф (чтобы не крутить цикл вхолостую) и идём на новый круг.
+                    # Решение «показывать ли статус» считает чистый монитор —
+                    # при стойкой пропаже пользователь увидит «Камера потеряна».
+                    time.sleep(self._camera_health.record_failure())
                     continue
+                # Камера вернулась/жива: снимаем статус «потеряна», сбрасываем счётчик.
+                self._camera_health.record_success()
                 self._last_frame_at = time.time()
                 if self.mode == "control":
                     frame = self._process_control(frame)
@@ -609,7 +624,13 @@ class AirControlApp:
         det_frame = frame
         if ds and ds < 0.999:
             det_frame = cv2.resize(frame, None, fx=ds, fy=ds, interpolation=cv2.INTER_AREA)
-        hands = self.tracker.detect(det_frame)
+        try:
+            hands = self.tracker.detect(det_frame)
+        except Exception as exc:
+            # Разовый сбой детекции (битый кадр, икота MediaPipe) не должен ронять
+            # цикл — считаем кадр «без рук» и едем дальше.
+            print(f"[app] Сбой детекции, кадр пропущен: {exc}")
+            hands = []
         self._detect_ms = (time.time() - t0) * 1000.0
         self._hand_detected = bool(hands)
         if hands:
@@ -742,7 +763,11 @@ class AirControlApp:
             R.draw_metrics(frame, self.fps.fps, self.cfg.filter.type,
                            self.cfg.gestures.recognizer)
         R.draw_mode_status(frame, self.mode, self._hand_detected, self._detect_ms)
-        health_lines = self._runtime_health_lines()
+        # input_status() и время берём ОДИН раз за кадр и переиспользуем
+        # (раньше input_status() считался дважды, а на Linux он дёргает shutil.which).
+        now = time.time()
+        input_status = self.actions.input_status()
+        health_lines = self._runtime_health_lines(now=now, input_status=input_status)
         R.draw_runtime_health(frame, health_lines)
         if self.cfg.ui.show_hud:
             R.draw_hud(frame, self.mode)
@@ -750,27 +775,30 @@ class AirControlApp:
             frame,
             profile=self.cfg.profile_name,
             assistive_preset=self.cfg.assistive_preset,
-            input_status=self.actions.input_status(),
+            input_status=input_status,
             dwell_enabled=self.cfg.cursor.dwell_enabled,
             dwell_only_mode=self.cfg.gestures.dwell_only_mode,
             last_action=self.actions.last_action,
-            last_action_age=time.time() - self.actions.last_action_time
+            last_action_age=now - self.actions.last_action_time
             if self.actions.last_action_time else None,
             last_input_error=self.actions.last_input_error,
-            last_input_error_age=time.time() - self.actions.last_input_error_time
+            last_input_error_age=now - self.actions.last_input_error_time
             if self.actions.last_input_error_time else None,
         )
-        if time.time() < self._toast_until:
+        if now < self._toast_until:
             toast_y = 176 if health_lines else 96
             cv2.putText(frame, self._toast, (15, toast_y), cv2.FONT_HERSHEY_SIMPLEX,
                         0.7, (0, 255, 0), 2)
 
-    def _runtime_health_lines(self) -> list[str]:
-        now = time.time()
+    def _runtime_health_lines(self, now=None, input_status=None) -> list[str]:
+        if now is None:
+            now = time.time()
+        if input_status is None:
+            input_status = self.actions.input_status()
         last_frame_age = None if not self._last_frame_at else now - self._last_frame_at
         return build_runtime_health_lines(
             mode=self.mode,
-            input_status=self.actions.input_status(),
+            input_status=input_status,
             last_input_error=self.actions.last_input_error,
             input_error_age=now - self.actions.last_input_error_time
             if self.actions.last_input_error_time else None,
@@ -782,6 +810,7 @@ class AirControlApp:
             last_frame_age=last_frame_age,
             hand_detected=self._hand_detected,
             mode_age=now - self._mode_started_at,
+            camera_lost=self._camera_health.lost,
         )
 
     def _show(self, frame):
@@ -790,8 +819,7 @@ class AirControlApp:
             disp = cv2.resize(frame, (cw, ch))
             rgb = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
             imgtk = ImageTk.PhotoImage(image=Image.fromarray(rgb))
-            self.canvas.delete("all")
-            self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+            self.canvas.itemconfig(self._canvas_img_id, image=imgtk)
             self.canvas.imgtk = imgtk
 
     def _toast_msg(self, msg: str):
@@ -862,6 +890,83 @@ def build_preview_gestures(classifier, hand) -> FrameGestures:
     )
 
 
+# Сообщение пользователю, когда поток с камеры пропал посреди сессии.
+CAMERA_LOST_STATUS = "Камера потеряна — переподключите"
+
+
+def decide_camera_health(
+    *,
+    consecutive_failures: int,
+    elapsed_since_last_ok: float | None,
+    fail_threshold: int = 5,
+    fail_seconds: float = 1.0,
+) -> tuple[bool, float]:
+    """Чистая, тестируемая логика деградации захвата кадра.
+
+    На вход — счётчик подряд идущих неудачных camera.read() и время с момента
+    последнего успешного кадра. На выход — кортеж:
+      * show_lost  — показывать ли пользователю статус «камера потеряна»;
+      * backoff    — сколько секунд поспать перед следующей попыткой (0 — не спать).
+
+    Никаких побочных эффектов, никакой камеры и Tk: можно гонять в юнит-тестах.
+    Статус «потеряна» включается только когда камера действительно подвисла —
+    либо подряд накопилось fail_threshold неудач, либо с последнего кадра прошло
+    больше fail_seconds. Бэкофф запрашивается на любой неудаче, чтобы не крутить
+    busy-loop, и слегка растёт (но ограничен), пока камера не вернётся."""
+    if consecutive_failures <= 0:
+        # Камера в норме: статуса нет, спать не нужно.
+        return False, 0.0
+    over_count = consecutive_failures >= fail_threshold
+    over_time = elapsed_since_last_ok is not None and elapsed_since_last_ok >= fail_seconds
+    show_lost = over_count or over_time
+    # Мягкий бэкофф: 5 мс пока сбоев мало, до 50 мс когда камера явно пропала.
+    backoff = 0.05 if show_lost else 0.005
+    return show_lost, backoff
+
+
+class CameraHealthMonitor:
+    """Крошечный накопитель состояния поверх decide_camera_health().
+
+    Держит счётчик подряд идущих неудач и время последнего успешного кадра,
+    решает — показывать ли статус и сколько спать. Не знает ни про камеру, ни про
+    Tk, поэтому полностью юнит-тестируется без железа."""
+
+    def __init__(self, *, fail_threshold: int = 5, fail_seconds: float = 1.0):
+        self.fail_threshold = fail_threshold
+        self.fail_seconds = fail_seconds
+        self.consecutive_failures = 0
+        self.last_ok_at: float | None = None
+        self.lost = False
+
+    def record_success(self, now: float | None = None) -> None:
+        """Успешный кадр: сбрасываем счётчик и снимаем статус «потеряна»."""
+        if now is None:
+            now = time.time()
+        self.consecutive_failures = 0
+        self.last_ok_at = now
+        self.lost = False
+
+    def record_failure(self, now: float | None = None) -> float:
+        """Неудачный camera.read(): копим счётчик, обновляем статус и возвращаем
+        рекомендованное время сна (бэкофф), чтобы цикл не крутился вхолостую."""
+        if now is None:
+            now = time.time()
+        self.consecutive_failures += 1
+        elapsed = None if self.last_ok_at is None else now - self.last_ok_at
+        self.lost, backoff = decide_camera_health(
+            consecutive_failures=self.consecutive_failures,
+            elapsed_since_last_ok=elapsed,
+            fail_threshold=self.fail_threshold,
+            fail_seconds=self.fail_seconds,
+        )
+        return backoff
+
+    @property
+    def status_line(self) -> str | None:
+        """Готовая строка для оверлея, либо None когда всё хорошо."""
+        return CAMERA_LOST_STATUS if self.lost else None
+
+
 def build_runtime_health_lines(
     *,
     mode: str,
@@ -876,9 +981,14 @@ def build_runtime_health_lines(
     low_perf_reason: str = "",
     last_input_error: str = "",
     input_error_age: float | None = None,
+    camera_lost: bool = False,
 ) -> list[str]:
     """Human-readable runtime warnings for both control and safe preview modes."""
     lines: list[str] = []
+    if camera_lost:
+        # Самое важное сообщение — наверх, чтобы пользователь сразу понял причину
+        # «замороженного» кадра вместо немого зависания.
+        lines.append(CAMERA_LOST_STATUS)
     if input_status == "INPUT OFF":
         lines.append("Input OFF: gestures are detected, but OS control is unavailable")
     elif input_status == "INPUT ERROR":

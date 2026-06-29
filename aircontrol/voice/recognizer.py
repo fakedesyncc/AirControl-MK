@@ -117,6 +117,52 @@ class VoiceRecognizer:
             return None
 
 
+def vosk_model_status(cfg: VoiceConfig) -> tuple[bool, str]:
+    """Сообщить, существует ли настроенная офлайн-модель Vosk и похожа ли она на настоящую.
+
+    Чистый помощник для диагностики/UI: не загружает модель, не трогает звук
+    и сеть, не меняет поведение распознавания. Возвращает пару
+    ``(ok, detail)``, где ``ok`` — пригодна ли модель к использованию, а
+    ``detail`` — человекочитаемое пояснение (например, для строки статуса).
+
+    Важно: это лишь сообщение о состоянии. Политика «без тихого отката»
+    сохраняется — при engine=vosk и отсутствующей модели голос недоступен,
+    приложение НЕ переключается на Google молча.
+    """
+    model_dir = getattr(cfg, "vosk_model_path", "") or DEFAULT_VOSK_MODEL_PATH
+    if not os.path.isdir(model_dir):
+        return False, f"vosk model unavailable: {model_dir}"
+    ok, reason = looks_like_vosk_model(model_dir)
+    if not ok:
+        return False, f"vosk model invalid: {reason} ({model_dir})"
+    return True, f"vosk model ready: {model_dir}"
+
+
+def looks_like_vosk_model(model_dir: str) -> tuple[bool, str]:
+    """Поверхностно проверить, что каталог похож на распакованную модель Vosk.
+
+    Это эвристика по структуре, а не загрузка модели: проверяем наличие
+    характерных подкаталогов/файлов (акустическая модель ``am/final.mdl`` и
+    конфиг в ``conf/``). Возвращает ``(ok, reason)``; при неуспехе ``reason``
+    кратко поясняет, чего не хватает.
+    """
+    if not os.path.isdir(model_dir):
+        return False, "not a directory"
+    am_model = os.path.join(model_dir, "am", "final.mdl")
+    if not os.path.isfile(am_model):
+        return False, "missing am/final.mdl"
+    conf_dir = os.path.join(model_dir, "conf")
+    if not os.path.isdir(conf_dir):
+        return False, "missing conf/"
+    has_conf = any(
+        os.path.isfile(os.path.join(conf_dir, name))
+        for name in ("mfcc.conf", "model.conf")
+    )
+    if not has_conf:
+        return False, "missing conf/mfcc.conf or conf/model.conf"
+    return True, "ok"
+
+
 def _initial_status(cfg: VoiceConfig) -> str:
     if not cfg.enabled:
         return "disabled"

@@ -157,7 +157,11 @@ class FittsTest:
                 ux, uy = ax / norm, ay / norm
                 ex, ey = c.click_pos[0] - tx, c.click_pos[1] - ty
                 projections.append(ex * ux + ey * uy)  # отклонение вдоль оси
-                amplitudes.append(math.hypot(c.click_pos[0] - fx, c.click_pos[1] - fy))
+                # Эффективная амплитуда по ISO 9241-9 — это проекция реального
+                # перемещения на ось задачи, а не прямое расстояние (иначе off-axis
+                # промах завышает Ae → IDe → throughput). Согласовано с We выше.
+                mx, my = c.click_pos[0] - fx, c.click_pos[1] - fy
+                amplitudes.append(mx * ux + my * uy)
 
             sd = _std(projections)
             we = 4.133 * sd if sd > 0 else w

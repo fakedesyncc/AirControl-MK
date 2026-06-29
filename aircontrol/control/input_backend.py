@@ -210,6 +210,48 @@ _ACTIVE_BACKENDS: Set[str] = set()
 _YDOTOOL_READY = False
 _YDOTOOL_MOUSEMOVE_STYLE: Optional[str] = None
 
+# Кэши обнаружения окружения (на время процесса).
+#
+# QA нашёл, что input_status() и связанные хелперы могут многократно дёргать
+# shutil.which(...) и заново определять дисплей-сервер на горячем пути. Эти
+# величины не меняются в течение запуска, поэтому их безопасно мемоизировать.
+#
+# Ключи кэшей включают релевантные переменные окружения (и идентичность самой
+# shutil.which), поэтому при смене окружения — в том числе при monkeypatch в
+# тестах — кэш пересчитывается, а поведение остаётся идентичным.
+_DISPLAY_SERVER_CACHE: dict = {}
+_WHICH_CACHE: dict = {}
+
+
+def _display_env_signature() -> tuple:
+    """Снимок переменных, влияющих на определение дисплей-сервера/инструментов."""
+    return (
+        sys.platform,
+        os.environ.get("XDG_SESSION_TYPE", ""),
+        os.environ.get("WAYLAND_DISPLAY", ""),
+        os.environ.get("DISPLAY", ""),
+    )
+
+
+def _which_cached(tool: str) -> Optional[str]:
+    """Мемоизированная обёртка над shutil.which для инструментов ввода.
+
+    Путь к бинарю не меняется в пределах процесса, поэтому достаточно одного
+    реального вызова shutil.which на инструмент. Ключ включает PATH и саму
+    функцию shutil.which (её идентичность), чтобы корректно реагировать на смену
+    PATH и на подмену which в тестах, не возвращая устаревший результат.
+    """
+    key = (tool, os.environ.get("PATH", ""), id(shutil.which))
+    if key not in _WHICH_CACHE:
+        _WHICH_CACHE[key] = shutil.which(tool)
+    return _WHICH_CACHE[key]
+
+
+def reset_detection_cache() -> None:
+    """Сбросить кэши обнаружения окружения (для тестов/смены сессии)."""
+    _DISPLAY_SERVER_CACHE.clear()
+    _WHICH_CACHE.clear()
+
 try:  # pragma: no cover - availability depends on host display server.
     from pynput.keyboard import Controller as _PynputKeyboardController
     from pynput.keyboard import Key as Key
@@ -327,7 +369,13 @@ def probe_input_backend(move_mouse: bool = False) -> dict:
 
 
 def input_backend_warning() -> Optional[str]:
-    """Return a non-fatal warning for backends that may be blocked by the OS."""
+    """Вернуть нефатальное предупреждение, если ОС может блокировать ввод.
+
+    Текст предупреждения сделан максимально конкретным (что именно настроить),
+    но возвращаемые коды статуса (FAIL/WARN/OK) формируются вызывающим кодом и не
+    зависят от формулировки — diagnostics/actions их не парсят из этого текста.
+    Дорогие проверки (дисплей-сервер, shutil.which) кэшируются.
+    """
     if input_backend_error() is not None:
         return None
     if not sys.platform.startswith("linux"):
@@ -336,17 +384,22 @@ def input_backend_warning() -> Optional[str]:
     display = _linux_display_server()
     backend = input_backend_name()
     if display == "wayland" and backend != "ydotool":
-        if shutil.which("ydotool"):
+        if _which_cached("ydotool"):
             return (
-                "Wayland session with non-ydotool input backend; ydotool is "
-                "installed, but ydotoold/uinput was not usable."
+                "Wayland-сессия с не-ydotool backend: ydotool установлен, но "
+                "ydotoold/uinput недоступен. Запустите демон ydotoold и дайте "
+                "доступ к /dev/uinput (группа input или права на устройство)."
             )
         return (
-            "Wayland session with non-ydotool input backend; global mouse and "
-            "keyboard control may be blocked. Use Xorg or configure ydotool/ydotoold."
+            "Wayland-сессия с не-ydotool backend: глобальное управление мышью и "
+            "клавиатурой, скорее всего, заблокировано. Войдите в Xorg-сессию или "
+            "установите ydotool и запустите ydotoold с доступом к /dev/uinput."
         )
     if display == "headless":
-        return "No graphical display session was detected."
+        return (
+            "Графическая дисплей-сессия не обнаружена (нет DISPLAY/WAYLAND_DISPLAY). "
+            "Глобальный ввод недоступен вне графической сессии."
+        )
     return None
 
 
@@ -407,7 +460,7 @@ def _probe_mouse_move(mouse, backend: str) -> tuple[Optional[bool], str]:
 def _xdotool_available() -> bool:
     if not sys.platform.startswith("linux"):
         return False
-    if not shutil.which("xdotool"):
+    if not _which_cached("xdotool"):
         return False
     if not os.environ.get("DISPLAY"):
         return False
@@ -424,14 +477,27 @@ def _prefer_ydotool() -> bool:
 
 
 def _linux_display_server() -> str:
+    """Определить тип дисплей-сессии (wayland/x11/headless).
+
+    Результат мемоизируется по сигнатуре окружения: вычисление чистое (читает
+    только переменные окружения), а сами переменные не меняются в течение
+    запуска, поэтому повторные вызовы на горячем пути не пересчитываются.
+    """
+    sig = _display_env_signature()
+    cached = _DISPLAY_SERVER_CACHE.get(sig)
+    if cached is not None:
+        return cached
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session in ("wayland", "x11"):
-        return session
-    if os.environ.get("WAYLAND_DISPLAY"):
-        return "wayland"
-    if os.environ.get("DISPLAY"):
-        return "x11"
-    return "headless"
+        result = session
+    elif os.environ.get("WAYLAND_DISPLAY"):
+        result = "wayland"
+    elif os.environ.get("DISPLAY"):
+        result = "x11"
+    else:
+        result = "headless"
+    _DISPLAY_SERVER_CACHE[sig] = result
+    return result
 
 
 def _ydotool_available() -> bool:
@@ -440,7 +506,7 @@ def _ydotool_available() -> bool:
         return True
     if not sys.platform.startswith("linux"):
         return False
-    if not shutil.which("ydotool"):
+    if not _which_cached("ydotool"):
         return False
     try:
         # 0x00 is documented as a no-op button value. This checks that ydotool
@@ -579,11 +645,40 @@ def _linux_key_code(key) -> Optional[int]:
 
 
 def _fallback_hint() -> str:
+    """Подсказка для случая, когда ни один backend ввода не доступен.
+
+    Текст ориентирован на конкретное действие по платформам. Это сообщение —
+    запасное (используется, если нет _CREATE_ERROR/_IMPORT_ERROR), поэтому его
+    формулировка свободна: diagnostics не парсит из него коды статуса. Проверки
+    инструментов кэшируются через _which_cached.
+    """
     if sys.platform.startswith("linux"):
         if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
-            if shutil.which("ydotool"):
-                return "ydotool is installed, but ydotoold/uinput is not ready."
-            return "Wayland blocks global input; use Xorg or configure ydotool/ydotoold."
-        if not shutil.which("xdotool") and not shutil.which("ydotool"):
-            return "pynput unavailable and xdotool/ydotool are not installed."
-    return "No usable input backend."
+            if _which_cached("ydotool"):
+                return (
+                    "ydotool установлен, но ydotoold/uinput не готов: запустите "
+                    "демон ydotoold и дайте доступ к /dev/uinput."
+                )
+            return (
+                "Wayland блокирует глобальный ввод: войдите в Xorg-сессию либо "
+                "установите ydotool и запустите ydotoold с доступом к /dev/uinput."
+            )
+        if not _which_cached("xdotool") and not _which_cached("ydotool"):
+            return (
+                "pynput недоступен, а xdotool/ydotool не установлены: установите "
+                "зависимости проекта или один из этих инструментов."
+            )
+        return "Нет рабочего backend ввода."
+    if sys.platform == "darwin":
+        return (
+            "Нет рабочего backend ввода. На macOS разрешите управление в "
+            "System Settings -> Privacy & Security -> Accessibility для приложения "
+            "(терминала/собранного бинаря)."
+        )
+    if sys.platform.startswith("win"):
+        return (
+            "Нет рабочего backend ввода. На Windows проверьте, что антивирус или "
+            "SmartScreen не блокируют синтетический ввод, и запустите приложение "
+            "от доверенного источника."
+        )
+    return "Нет рабочего backend ввода."

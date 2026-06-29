@@ -11,6 +11,7 @@
 ключевая ассистивная функция для пользователей, которым трудно делать щипок.
 """
 
+import threading
 import time
 from typing import Optional, Tuple
 
@@ -42,7 +43,12 @@ class CursorController:
             self._current = [self.screen_w / 2.0, self.screen_h / 2.0]
         self.target: Optional[Tuple[int, int]] = None
         self._resync = False        # при повторном захвате руки — прыжок к цели
+        self._last_written: Optional[Tuple[int, int]] = None  # последний отправленный в ОС пиксель
         self.easing = getattr(cursor_cfg, "worker_easing", 0.4)
+        # Состояние target/_current/_resync/mouse читают/пишут три потока (детекция,
+        # воркер мыши, UI при Safe ON/OFF). Лок защищает от гонки и от того, что при
+        # смене backend в Safe мы дёрнем не тот указатель.
+        self._lock = threading.Lock()
 
     def set_filter(self, filter_cfg: FilterConfig) -> None:
         """Смена фильтра в рантайме (используется при сравнении в работе)."""
@@ -53,13 +59,15 @@ class CursorController:
 
     def set_mouse(self, mouse) -> None:
         """Swap the low-level mouse backend after Safe ON/OFF changes."""
-        self.mouse = mouse
-        try:
-            pos = self.mouse.position
-            self._current = [float(pos[0]), float(pos[1])]
-        except Exception:
-            self._current = [float(self.last_screen_pos[0]), float(self.last_screen_pos[1])]
-        self._resync = True
+        with self._lock:
+            self.mouse = mouse
+            try:
+                pos = self.mouse.position
+                self._current = [float(pos[0]), float(pos[1])]
+            except Exception:
+                self._current = [float(self.last_screen_pos[0]), float(self.last_screen_pos[1])]
+            self._resync = True
+            self._last_written = None    # новый backend — форсируем первую запись
 
     # ---- отображение нормализованных координат в экранные ------------------
 
@@ -94,34 +102,49 @@ class CursorController:
         высокочастотный воркер через step() — это разъединяет плавность курсора
         и частоту детекции. Возвращает 'left_click' при срабатывании dwell."""
         if not fg.hand_detected or fg.cursor_norm is None or fg.frozen:
-            self.target = None          # воркер не двигает мышь
+            with self._lock:
+                self.target = None      # воркер не двигает мышь
             self._reset_dwell()
             return None
 
         nx, ny = fg.cursor_norm
         fx, fy = self.filter.filter(nx, ny, timestamp)
         sx, sy = self.map_to_screen(fx, fy)
-        if self.target is None:
-            self._resync = True         # рука только что вернулась — прыжок к цели
-        self.target = (sx, sy)
+        with self._lock:
+            if self.target is None:
+                self._resync = True     # рука только что вернулась — прыжок к цели
+            self.target = (sx, sy)
         self.last_screen_pos = (sx, sy)
         return self._update_dwell(sx, sy, timestamp, fg)
 
     def step(self) -> None:
-        """Вызывается высокочастотным воркером: плавно ведёт курсор к цели."""
-        target = self.target
-        if target is None:
-            return
-        try:
+        """Вызывается высокочастотным воркером: плавно ведёт курсор к цели.
+
+        Состояние и backend захватываем под локом атомарно, а саму OS-запись
+        делаем ВНЕ лока — чтобы медленный backend (xdotool/ydotool на Linux) не
+        стопорил поток детекции, и чтобы при Safe ON/OFF не дёрнуть не тот указатель."""
+        with self._lock:
+            target = self.target
+            if target is None:
+                return
             if self._resync:
                 self._current = [float(target[0]), float(target[1])]
                 self._resync = False
             else:
                 self._current[0] += (target[0] - self._current[0]) * self.easing
                 self._current[1] += (target[1] - self._current[1]) * self.easing
-            self.mouse.position = (int(round(self._current[0])), int(round(self._current[1])))
+            px = (int(round(self._current[0])), int(round(self._current[1])))
+            if px == self._last_written:   # уже на месте — не дёргаем ОС впустую
+                return
+            mouse = self.mouse
+        try:
+            mouse.position = px
         except Exception:
             pass
+        else:
+            with self._lock:
+                if self.mouse is mouse:
+                    self._last_written = px
 
     # ---- dwell-click -------------------------------------------------------
 

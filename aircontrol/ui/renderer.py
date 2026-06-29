@@ -14,6 +14,22 @@ import numpy as np
 from ..gestures.engine import FrameGestures
 from ..tracking.hand_tracker import HandResult
 
+
+def _shade(frame, x0: int, y0: int, x1: int, y1: int, alpha: float = 0.6) -> None:
+    """Затемнить ПРЯМОУГОЛЬНИК кадра (полупрозрачная чёрная плашка под текст).
+
+    Блендит только ROI, а не весь кадр (раньше было frame.copy()+addWeighted по
+    всему кадру 2–4 раза за кадр). x1/y1 включаются (как у cv2.rectangle с -1),
+    поэтому берём +1 при срезе. Затемнение к чёрному эквивалентно addWeighted с
+    плашкой (0,0,0): pixel*(1-alpha)."""
+    h, w = frame.shape[:2]
+    x0 = max(0, x0); y0 = max(0, y0)
+    x1 = min(w, x1 + 1); y1 = min(h, y1 + 1)
+    if x1 <= x0 or y1 <= y0:
+        return
+    roi = frame[y0:y1, x0:x1]
+    roi[:] = (roi * (1.0 - alpha)).astype(roi.dtype)
+
 # Связи между лендмарками руки (для отрисовки скелета).
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),            # большой
@@ -136,9 +152,7 @@ def draw_mode_status(frame, mode: str, hand_detected: bool, detect_ms: float) ->
         color = (0, 220, 255)
         extra = f"detect {detect_ms:.0f} ms | press 2 for control" if detect_ms else "press 2 for control"
 
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (8, 42), (min(w - 8, 420), 88), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.58, frame, 0.42, 0, frame)
+    _shade(frame, 8, 42, min(w - 8, 420), 88, 0.58)
     cv2.putText(frame, text, (16, 62), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
     cv2.putText(frame, extra, (16, 82), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1)
 
@@ -151,9 +165,7 @@ def draw_runtime_health(frame, lines: List[str]) -> None:
     line_h = 18
     box_h = min(76, 14 + line_h * min(3, len(lines)))
     box_w = min(w - 20, 520)
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.62, frame, 0.38, 0, frame)
+    _shade(frame, x0, y0, x0 + box_w, y0 + box_h, 0.62)
     for i, line in enumerate(lines[:3]):
         color = (0, 220, 255) if i == 0 else (220, 220, 220)
         cv2.putText(frame, line[:72], (x0 + 8, y0 + 22 + i * line_h),
@@ -186,10 +198,8 @@ def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled:
     if last_input_error and (last_input_error_age is None or last_input_error_age < 10.0):
         lines.append(f"error: {last_input_error}")
 
-    overlay = frame.copy()
     height = 18 * len(lines) + 10
-    cv2.rectangle(overlay, (x0 - 8, y0 - 6), (w - 8, y0 + height), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.58, frame, 0.42, 0, frame)
+    _shade(frame, x0 - 8, y0 - 6, w - 8, y0 + height, 0.58)
 
     for i, line in enumerate(lines):
         cv2.putText(frame, line[:32], (x0, y0 + i * 18), cv2.FONT_HERSHEY_SIMPLEX,
@@ -198,9 +208,7 @@ def draw_assistive_status(frame, profile: str, input_status: str, dwell_enabled:
 
 def draw_hud(frame, mode_label: str) -> None:
     h, w = frame.shape[:2]
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, h - 108), (w, h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+    _shade(frame, 0, h - 108, w, h, 0.6)
     y0 = h - 88
     lines = [
         "LMB: thumb+index | RMB: thumb+middle | 2x index: dbl-click | 2x middle: mid-btn",

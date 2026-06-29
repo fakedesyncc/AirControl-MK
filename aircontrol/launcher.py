@@ -15,6 +15,17 @@ from typing import Callable
 from .config import AppConfig, apply_assistive_profile
 
 
+# Reassurance shown on the start window before anything is launched. The safe
+# path (View / Safe training) never sends clicks or key presses to the OS.
+SAFE_START_REASSURANCE = (
+    "Начните с безопасной тренировки: курсор и клики НЕ отправляются на компьютер, "
+    "вы просто учитесь жестам без риска."
+)
+
+# Hint shown in the first-run wizard while checks are still running.
+FIRST_RUN_CHECKING_HINT = "Идёт проверка. Подождите пару секунд..."
+
+
 def prepare_launch_config(
     cfg: AppConfig,
     *,
@@ -56,7 +67,7 @@ def run_launcher() -> None:
     tk.Label(container, text="Бесконтактное управление компьютером",
              bg=bg, fg=muted, font=("TkDefaultFont", 14)).pack(anchor="w", pady=(4, 22))
 
-    status = tk.StringVar(value="Сначала используйте безопасную тренировку: клики и клавиши отключены.")
+    status = tk.StringVar(value=SAFE_START_REASSURANCE)
     tk.Label(container, textvariable=status, bg=panel, fg=warning, justify="left",
              wraplength=530, padx=14, pady=12, font=("TkDefaultFont", 12)).pack(fill=tk.X)
 
@@ -125,13 +136,29 @@ def run_launcher() -> None:
         ).pack(anchor="w", padx=18, pady=(16, 6))
         tk.Label(
             win,
-            text="Проверьте камеру, ввод ОС и затем переходите к безопасной тренировке.",
+            text=(
+                "Три шага, и можно начинать. AirControl сам проверит камеру и ввод. "
+                "Пока вы здесь, никакие клики и нажатия клавиш на компьютер не отправляются."
+            ),
             bg=bg,
             fg=muted,
             font=("TkDefaultFont", 12),
             wraplength=700,
             justify="left",
         ).pack(anchor="w", padx=18, pady=(0, 12))
+
+        recommendation = tk.StringVar(value=FIRST_RUN_CHECKING_HINT)
+        tk.Label(
+            win,
+            textvariable=recommendation,
+            bg=panel,
+            fg=accent,
+            justify="left",
+            wraplength=700,
+            padx=14,
+            pady=11,
+            font=("TkDefaultFont", 12, "bold"),
+        ).pack(fill=tk.X, padx=18, pady=(0, 12))
 
         step_frame = tk.Frame(win, bg=bg, padx=18)
         step_frame.pack(fill=tk.X)
@@ -194,11 +221,20 @@ def run_launcher() -> None:
                     f"{item.get('title', step_id)}: {item.get('message', '')}"
                 )
                 step_labels[step_id].configure(fg=_wizard_status_color(str(item.get("status")), text, warning))
+            action = first_run_recommended_action(statuses)
+            recommendation.set(action["headline"])
+            if action["action"] == "diagnostics":
+                safe_button.configure(bg="#27323c", fg=text)
+                fix_button.configure(bg=accent, fg="#07100b")
+            else:
+                safe_button.configure(bg=accent, fg="#07100b")
+                fix_button.configure(bg="#27323c", fg=text)
             set_details(detail_text)
             check_button.configure(state=tk.NORMAL)
 
         def run_checks() -> None:
             check_button.configure(state=tk.DISABLED)
+            recommendation.set(FIRST_RUN_CHECKING_HINT)
             set_details("Идёт проверка камеры и безопасного ввода...\n")
             for step_id, title in [
                 ("camera", "Камера и модель"),
@@ -250,10 +286,24 @@ def run_launcher() -> None:
             font=("TkDefaultFont", 12, "bold"),
         )
         check_button.pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(
+        safe_button = tk.Button(
             actions,
-            text="Безопасная тренировка",
+            text="Начать безопасную тренировку",
             command=lambda: (win.destroy(), launch_app(True, True)),
+            bg=accent,
+            fg="#07100b",
+            activebackground="#56e0a4",
+            activeforeground="#07100b",
+            relief=tk.FLAT,
+            padx=14,
+            pady=9,
+            font=("TkDefaultFont", 12, "bold"),
+        )
+        safe_button.pack(side=tk.LEFT, padx=8)
+        fix_button = tk.Button(
+            actions,
+            text="Открыть диагностику",
+            command=lambda: (win.destroy(), show_diagnostics()),
             bg="#27323c",
             fg=text,
             activebackground="#33414d",
@@ -262,10 +312,11 @@ def run_launcher() -> None:
             padx=14,
             pady=9,
             font=("TkDefaultFont", 12),
-        ).pack(side=tk.LEFT, padx=8)
+        )
+        fix_button.pack(side=tk.LEFT, padx=8)
         tk.Button(
             actions,
-            text="Сохранить ZIP",
+            text="Сохранить отчёт (ZIP)",
             command=save_report,
             bg="#27323c",
             fg=text,
@@ -414,9 +465,10 @@ def run_launcher() -> None:
             anchor="w",
         ).pack(fill=tk.X, pady=6)
 
-    add_button("Мастер первого запуска", show_first_run_wizard, True)
-    add_button("1. Безопасная тренировка (без кликов)", lambda: launch_app(True, True))
-    add_button("2. Ассистивное управление: баланс", lambda: launch_app(True, False))
+    add_button("Начать здесь: мастер первого запуска", show_first_run_wizard, True)
+    add_button("Шаг 1. Безопасная тренировка (без кликов)", lambda: launch_app(True, True))
+    add_button("Шаг 2. Калибровка под пользователя", run_calibration)
+    add_button("Шаг 3. Ассистивное управление: баланс", lambda: launch_app(True, False))
     add_button(
         "Ассистивное управление: тремор / дрожание",
         lambda: launch_app(True, False, assistive_preset="steady"),
@@ -426,7 +478,6 @@ def run_launcher() -> None:
         lambda: launch_app(True, False, assistive_preset="low_motion"),
     )
     add_button("Экранная клавиатура", run_scanning_keyboard)
-    add_button("Калибровка под пользователя", run_calibration)
     add_button("Проверить систему", show_diagnostics)
     add_button("Сохранить отчёт диагностики", save_report)
     add_button("Просмотр камеры (без управления)", lambda: launch_app(False, True, "view"))
@@ -507,6 +558,52 @@ def format_first_run_report(statuses: list[dict], summary: list[str], report: st
     lines.append("")
     lines.append(report)
     return "\n".join(lines)
+
+
+def first_run_recommended_action(statuses: list[dict]) -> dict:
+    """Pick the single obvious next action for the first-run wizard.
+
+    Pure mapping from the wizard ``statuses`` (as produced by
+    :func:`build_first_run_status`) to a recommendation the UI can render: a
+    plain-language headline and which button to highlight. The accessibility
+    audience should never have to guess what to press next.
+
+    The ``action`` is either ``"safe_training"`` (the safe, no-click path that
+    is always available) or ``"diagnostics"`` (something is blocking and the
+    caregiver should look at the report first).
+    """
+    next_status = "ok"
+    for item in statuses:
+        if item.get("id") == "next":
+            next_status = str(item.get("status", "ok"))
+            break
+
+    if next_status == "fail":
+        return {
+            "action": "diagnostics",
+            "status": "fail",
+            "headline": (
+                "Сначала нужно решить проблему. Откройте диагностику или сохраните "
+                "отчёт (ZIP) и передайте его помощнику — управление пока включать рано."
+            ),
+        }
+    if next_status == "warn":
+        return {
+            "action": "safe_training",
+            "status": "warn",
+            "headline": (
+                "Можно начать с безопасной тренировки (без кликов) и проверить, "
+                "стабильно ли работает. Реальное управление включайте после неё."
+            ),
+        }
+    return {
+        "action": "safe_training",
+        "status": "ok",
+        "headline": (
+            "Всё готово. Нажмите «Начать безопасную тренировку» (клики не отправляются), "
+            "потом сделайте калибровку и только затем включайте управление."
+        ),
+    }
 
 
 def _first_run_camera_status(report: str) -> dict:
