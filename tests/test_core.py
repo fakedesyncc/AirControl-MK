@@ -1942,5 +1942,46 @@ class TestScanningKeyboard(unittest.TestCase):
             ScanKeyboard(layout=[[]])
 
 
+class TestSwipeLOSO(unittest.TestCase):
+    """Leave-one-subject-out оценка временной модели свайпов на синтетике
+    нескольких «испытуемых»: честная проверка обобщения на нового пользователя.
+    Чистый numpy (без mediapipe/камеры), детерминировано по seed."""
+
+    @staticmethod
+    def _synthetic_multisubject(n_subjects=3, per_class=10, seed=7):
+        from aircontrol.evaluation.swipe_loso import SWIPE_LABELS
+        rng = np.random.RandomState(seed)
+        base = {"swipe_left": (-1, 0), "swipe_right": (1, 0),
+                "swipe_up": (0, -1), "swipe_down": (0, 1)}
+        points, labels, subjects = [], [], []
+        for s in range(n_subjects):
+            jitter = 0.004 + 0.002 * s          # у каждого испытуемого свой «почерк»
+            for _ in range(per_class):
+                for lab in SWIPE_LABELS:
+                    dx, dy = base[lab]
+                    x, y, traj = 0.5, 0.5, []
+                    for _i in range(12):
+                        x += dx * 0.03 + rng.randn() * jitter
+                        y += dy * 0.03 + rng.randn() * jitter
+                        traj.append((x, y))
+                    points.append(traj)
+                    labels.append(lab)
+                    subjects.append(f"S{s}")
+        return points, labels, subjects
+
+    def test_loso_generalises_above_chance(self):
+        import io
+        import contextlib
+        from aircontrol.evaluation.swipe_loso import run_loso
+        points, labels, subjects = self._synthetic_multisubject()
+        with contextlib.redirect_stdout(io.StringIO()):   # тренер шумит в stdout
+            res = run_loso(points, labels, subjects, backend="tcn", epochs=30, seed=1234)
+        self.assertEqual(res["n_subjects"], 3)
+        self.assertEqual(len(res["per_subject"]), 3)
+        self.assertAlmostEqual(res["chance"], 0.25)
+        self.assertGreaterEqual(res["mean_accuracy"], 0.6,
+                                f"LOSO mean acc={res['mean_accuracy']:.3f} ниже 0.6")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
