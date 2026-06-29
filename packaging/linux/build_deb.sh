@@ -3,7 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST_DIR="$ROOT/dist/AirControl"
-VERSION="${AIRCONTROL_VERSION:-1.0.0}"
+VERSION="${AIRCONTROL_VERSION:-$(python3 - <<'PY'
+from aircontrol import __version__
+print(__version__)
+PY
+)}"
 ARCH="${AIRCONTROL_DEB_ARCH:-amd64}"
 PKG_ROOT="$ROOT/build/deb/aircontrol_${VERSION}_${ARCH}"
 OUTPUT="$ROOT/AirControl-Linux-${ARCH}.deb"
