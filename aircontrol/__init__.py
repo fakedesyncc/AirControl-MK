@@ -19,7 +19,7 @@
     app         — главный оркестратор.
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __app_name__ = "AirControl"
 
 __all__ = ["__version__", "__app_name__"]

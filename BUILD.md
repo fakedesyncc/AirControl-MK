@@ -34,7 +34,7 @@ Workflows:
 - вручную через `Actions -> Build AirControl -> Run workflow`.
 
 Дополнительно `Build AirControl` запускается при push тега `v*`, например
-`v2.2.0`.
+`v2.3.0`.
 
 Важно: GitHub показывает и запускает workflow как обычный проектный workflow
 только после того, как файл `.github/workflows/build.yml` находится в default
