@@ -1,35 +1,63 @@
 <p align="center">
-  <img src="packaging/linux/aircontrol.svg" width="96" height="96" alt="AirControl logo">
+  <img src="packaging/linux/aircontrol.svg" width="104" height="104" alt="AirControl logo">
 </p>
 
 <h1 align="center">AirControl</h1>
 
 <p align="center">
-  Ассистивное управление компьютером через веб-камеру: курсор, клики, прокрутка,
-  горячие клавиши и безопасная тренировка без консоли.
+  <b>Ассистивное управление компьютером через веб-камеру.</b><br>
+  Курсор, клики, прокрутка, голос и взгляд — без обязательной мыши и без терминала.
 </p>
 
 <p align="center">
-  <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml">
-    <img alt="Build" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml/badge.svg">
+  <a href="https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml">
+    <img alt="Build" src="https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml/badge.svg">
   </a>
-  <a href="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml/badge.svg">
   </a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776ab">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-2f3340">
   <img alt="Accessibility" src="https://img.shields.io/badge/focus-accessibility-2f855a">
 </p>
 
+<p align="center">
+  <a href="https://github.com/fakedesyncc/AirControl/releases/latest"><b>⬇ Скачать релиз</b></a>
+  &nbsp;·&nbsp;
+  <a href="#первый-запуск">Первый запуск</a>
+  &nbsp;·&nbsp;
+  <a href="#жесты">Жесты</a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md">Архитектура</a>
+</p>
+
+---
+
 ## Что Это
 
 AirControl помогает пользоваться компьютером без обычной мыши или с минимальным
 движением рук. Приложение видит руку через веб-камеру, двигает курсор,
-распознаёт несколько жестов и даёт безопасный режим для настройки без случайных
-кликов.
+распознаёт жесты и даёт безопасный режим для настройки без случайных кликов.
 
 Проект рассчитан на обычного пользователя: готовая сборка запускается двойным
 кликом и не требует установленного Python.
+
+## Ключевые Возможности
+
+- **Курсор рукой + dwell-click** — наведение по положению кисти и клик по
+  удержанию, с профилями `fast` / `normal` / `steady` и паузой от повторных кликов.
+- **Ассистивные пресеты** — `balanced`, `steady`, `low_motion` под тремор,
+  малый диапазон движения и аккуратное управление.
+- **Динамические свайпы** — эвристика или обучаемые временные модели (TCN/LSTM);
+  рантайм работает на numpy, torch в сборку не входит.
+- **Наведение взглядом** (опционально) — грубый указатель по MediaPipe iris в
+  режимах `assist` (рука уточняет) и `cursor`.
+- **Офлайн-голос** — приватное распознавание команд через локальную модель Vosk,
+  без отправки речи в интернет.
+- **Безопасные режимы** — `View` / `Safe` показывают руку и жесты, но не шлют
+  ввод в ОС, пока вы не включите `Control` после preflight.
+- **Кросс-платформенные установщики** — сборки для Windows, macOS и Linux через
+  GitHub Actions, плюс встроенная диагностика без консоли.
 
 ## Для Кого
 
@@ -42,7 +70,30 @@ AirControl помогает пользоваться компьютером бе
 | Тестирование на чужом ПК | Встроенный `doctor` и ZIP-отчёт диагностики |
 | Linux с проблемами ввода | Проверка backend, Xorg/Wayland подсказки, `xdotool`/`ydotool` fallback |
 
-## Возможности
+## Как Это Работает
+
+Камера отдаёт кадры трекеру руки, движок жестов превращает позы кисти в события,
+а мультимодальный координатор объединяет руку, голос и взгляд и решает, что
+именно отправить в курсор и действия. Реальный ввод уходит в ОС только в режиме
+`Control` через изолированный input backend.
+
+```mermaid
+flowchart LR
+    Camera["Камера"] --> Tracker["HandTracker<br/>(MediaPipe)"]
+    Tracker --> Gestures["GestureEngine"]
+    Gestures --> Fusion["MultimodalCoordinator"]
+    Voice["Голос<br/>(Vosk / Google)"] --> Fusion
+    Gaze["Взгляд<br/>(MediaPipe iris)"] --> Fusion
+    Fusion --> Cursor["Курсор"]
+    Fusion --> Actions["Действия"]
+    Cursor --> Backend["Input backend ОС"]
+    Actions --> Backend
+```
+
+Подробный разбор модулей и границ ответственности — в
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Полный Список Возможностей
 
 - движение курсора по положению руки;
 - левый/правый клик жестами;
@@ -61,6 +112,24 @@ AirControl помогает пользоваться компьютером бе
 - ZIP-отчёт поддержки для разработчика или помощника;
 - сборки для Windows, macOS и Linux через GitHub Actions.
 
+## Скачать
+
+Готовые сборки публикуются на странице релизов:
+**[github.com/fakedesyncc/AirControl/releases/latest](https://github.com/fakedesyncc/AirControl/releases/latest)**.
+Выберите артефакт под свою ОС:
+
+| ОС | Файл | Для кого |
+| --- | --- | --- |
+| Windows | `AirControl-Setup.exe` | обычная установка без прав администратора |
+| Windows | `AirControl-Windows.zip` | portable-проверка |
+| macOS | `AirControl-macOS.zip` | `.app`-сборка |
+| Debian/Ubuntu | `AirControl-Linux-amd64.deb` | установка через графический установщик |
+| Linux | `AirControl-Linux-x86_64.AppImage` | portable-запуск двойным кликом |
+| Linux | `AirControl-Linux.tar.gz` | ручная диагностика |
+
+> Сборки пока не подписаны: Windows SmartScreen и macOS Gatekeeper могут
+> попросить ручное подтверждение запуска.
+
 ## Развитие
 
 Проект развивается вокруг ассистивного сценария: безопасный первый запуск,
@@ -73,22 +142,6 @@ AirControl помогает пользоваться компьютером бе
 - [docs/THESIS.md](docs/THESIS.md) — методика экспериментов для магистерской;
 - [BUILD.md](BUILD.md) — сборка и проверка релизных артефактов;
 - [docs/NATIVE_HELPER.md](docs/NATIVE_HELPER.md) — зачем нужен Go helper.
-
-## Скачать
-
-После успешной сборки в GitHub Actions скачайте подходящий артефакт:
-
-| ОС | Файл | Для кого |
-| --- | --- | --- |
-| Windows | `AirControl-Setup.exe` | обычная установка без прав администратора |
-| Windows | `AirControl-Windows.zip` | portable-проверка |
-| macOS | `AirControl-macOS.zip` | `.app`-сборка |
-| Debian/Ubuntu | `AirControl-Linux-amd64.deb` | установка через графический установщик |
-| Linux | `AirControl-Linux-x86_64.AppImage` | portable-запуск двойным кликом |
-| Linux | `AirControl-Linux.tar.gz` | ручная диагностика |
-
-Сборки сейчас не подписаны. Windows SmartScreen и macOS Gatekeeper могут
-попросить ручное подтверждение запуска.
 
 ## Первый Запуск
 
@@ -298,9 +351,9 @@ python tools/smoke_build.py
 ```
 
 PyInstaller не кросс-компилирует. Полные сборки под Windows, macOS и Linux
-делает workflow [Build AirControl](https://github.com/fakedesyncc/ML-vision/actions/workflows/build.yml).
+делает workflow [Build AirControl](https://github.com/fakedesyncc/AirControl/actions/workflows/build.yml).
 Быстрая проверка исходников вынесена в workflow
-[CI](https://github.com/fakedesyncc/ML-vision/actions/workflows/ci.yml).
+[CI](https://github.com/fakedesyncc/AirControl/actions/workflows/ci.yml).
 
 ## Структура
 

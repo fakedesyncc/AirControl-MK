@@ -263,6 +263,27 @@ class FusionConfig:
 
 
 @dataclass
+class ScanKeyboardConfig:
+    """Параметры экранной сканирующей клавиатуры (row–column scanning).
+
+    Ассистивный ввод текста одним действием «выбор» для пользователей, которым
+    недоступны щипки и точное наведение. Подсветка сама перебирает строки, затем
+    клавиши; пользователь фиксирует выбор удержанием/клавишей.
+
+    scan_interval — пауза между сдвигами подсветки (с). Больше → проще успеть
+        «выбрать», но медленнее набор; подбирается под пользователя.
+    max_loops     — сколько полных проходов подсветки сделать без выбора, прежде
+        чем остановить сканирование (0 = не останавливаться).
+    select_key    — клавиша-переключатель «выбор» в Tk-представлении (работает
+        везде и удобна для ручной проверки без жестов).
+    """
+
+    scan_interval: float = 1.2
+    max_loops: int = 0
+    select_key: str = "space"
+
+
+@dataclass
 class UIConfig:
     window_width: int = 800
     window_height: int = 600
@@ -330,6 +351,7 @@ class AppConfig:
     input: InputConfig = field(default_factory=InputConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    scan_keyboard: ScanKeyboardConfig = field(default_factory=ScanKeyboardConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)

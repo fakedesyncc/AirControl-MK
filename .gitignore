@@ -13,8 +13,11 @@ venv312/
 aircontrol/data/config.json
 aircontrol/data/gesture_dataset.npz
 aircontrol/data/gesture_model.npz*
+aircontrol/data/swipe*.npz
+aircontrol/data/*swipe*_model.npz*
 aircontrol/data/logs/
 aircontrol/data/figures/
+data/*.npz
 recordings/
 screenshots/
 aircontrol-support*.zip

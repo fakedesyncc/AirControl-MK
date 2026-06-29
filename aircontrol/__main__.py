@@ -92,6 +92,16 @@ def cmd_launcher(args):
     run_launcher()
 
 
+def cmd_keyboard(args):
+    from .ui.scanning_keyboard import run_scanning_keyboard
+    cfg = AppConfig.load()
+    if getattr(args, "scan_interval", None):
+        cfg.scan_keyboard.scan_interval = args.scan_interval
+    if getattr(args, "dry_input", False):
+        cfg.input.dry_run = True
+    run_scanning_keyboard(cfg)
+
+
 def cmd_collect(args):
     from .gestures.collector import collect_dataset
     collect_dataset(AppConfig.load())
@@ -296,6 +306,14 @@ def main(argv=None):
     p_assistive.set_defaults(func=cmd_assistive)
 
     sub.add_parser("launcher", help="показать стартовое окно без консоли").set_defaults(func=cmd_launcher)
+
+    p_keyboard = sub.add_parser("keyboard",
+                                help="экранная сканирующая клавиатура (ввод одним «выбором»)")
+    p_keyboard.add_argument("--scan-interval", type=float, default=None, dest="scan_interval",
+                            help="пауза между сдвигами подсветки, сек (больше — проще успеть выбрать)")
+    p_keyboard.add_argument("--dry-input", action="store_true",
+                            help="безопасная проверка: не отправлять клавиши в ОС")
+    p_keyboard.set_defaults(func=cmd_keyboard)
 
     sub.add_parser("collect", help="собрать датасет жестов").set_defaults(func=cmd_collect)
 
