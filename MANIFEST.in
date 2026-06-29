@@ -1,0 +1,28 @@
+include LICENSE
+include NOTICE
+include CITATION.cff
+include README.md
+include BUILD.md
+include ROADMAP.md
+include SECURITY.md
+include CONTRIBUTING.md
+include aircontrol.spec
+include run_app.py
+include go.mod
+include hand_landmarker.task
+include requirements.txt
+include requirements-build.txt
+include requirements-optional.txt
+
+recursive-include aircontrol *.py
+recursive-include cmd *.go
+recursive-include docs *.md
+recursive-include packaging *.desktop *.iss *.py *.sh *.svg *.txt
+recursive-include tests *.py
+recursive-include tools *.py
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store
+prune aircontrol/data/logs
+prune aircontrol/data/figures

@@ -27,6 +27,8 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 [Files]
 Source: "..\..\dist\AirControl\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\..\packaging\USER_GUIDE_RU.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AirControl"; Filename: "{app}\{#MyAppExeName}"

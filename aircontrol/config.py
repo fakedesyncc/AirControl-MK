@@ -37,7 +37,7 @@ def _bundled_model_path() -> str:
         p = os.path.join(sys._MEIPASS, "hand_landmarker.task")
         if os.path.exists(p):
             return p
-    return os.path.join(_PROJECT_DIR, "hand_landmarker.task")
+    return _asset_path("hand_landmarker.task")
 
 
 def _bundled_face_model_path() -> str:
@@ -49,7 +49,19 @@ def _bundled_face_model_path() -> str:
         p = os.path.join(sys._MEIPASS, "face_landmarker.task")
         if os.path.exists(p):
             return p
-    return os.path.join(_PROJECT_DIR, "face_landmarker.task")
+    return _asset_path("face_landmarker.task")
+
+
+def _asset_path(name: str) -> str:
+    candidates = [
+        os.path.join(_PROJECT_DIR, name),
+        os.path.join(sys.prefix, "share", "aircontrol", name),
+        os.path.join(sys.base_prefix, "share", "aircontrol", name),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0]
 
 
 # Каталоги данных (профили, датасеты жестов, логи, скриншоты, записи).

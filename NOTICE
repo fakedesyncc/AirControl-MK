@@ -1,0 +1,14 @@
+AirControl
+Copyright 2026 fakedesyncc
+
+AirControl application code is licensed under the MIT License.
+
+Third-party dependencies, operating-system tools and bundled runtime assets are
+governed by their own licenses and notices. The project license does not change
+the terms of upstream dependencies installed through pip, Go modules, system
+packages or packaging tools.
+
+Bundled model asset:
+
+- hand_landmarker.task: MediaPipe hand landmarker task asset used for local
+  webcam hand tracking.

@@ -30,6 +30,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - name: Disable Windows CRLF conversion
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
